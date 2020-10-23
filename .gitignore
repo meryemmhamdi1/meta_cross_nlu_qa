@@ -3,6 +3,7 @@ sync_scripts/*
 get_stats.py
 .idea/*
 idea
+.DS_Store
 
 __pycache__/
 *.py[cod]

@@ -1,4 +1,9 @@
 # Byte-compiled / optimized / DLL files
+sync_scripts/*
+get_stats.py
+.idea/*
+idea
+
 __pycache__/
 *.py[cod]
 *$py.class

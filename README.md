@@ -1,42 +1,46 @@
-# Meta-Transfer Learning for Cross-lingual Natural Language Understanding
+# Meta-Transfer Learning for X-NLU:
 
-## Meryem M'hamdi, Doo Soo Kim, Trung Bui, Franck Dernoncourt
+This is a pytorch/learn2learn implementation for cross-lingual Transfer Learning NLU based on different flavours of meta-learning. This repository contains code for replicating experiments for task-oriented dialogue and typologically diverse question answering using meta-learning algorithms described in this paper: "X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering (M'hamdi et al. 2021)" to appear in NAACL'21.    
 
-This is the implementation for cross-lingual Transfer Learning NLU based on different flavours of meta-learning.
+## Table of Contents:
+
+1. [Abstract](#abstract)
+2. [Requirements](#requirements)
+3. [Datasets](#datasets)
+4. [Cross-lingual Few-shot Meta Pseudo-Tasks](#metatasks)
+5. [Few-shot Multilingual Task-Oriented Dialogue (MTOD)](#mtod)
+6. [Few-Shot TyDiQA](#qa)
+7. [Other Models](#other)
+8. [Citation](#citation)
+9. [Credits](#credits)
 
 
-#### Abstract:
+## 1. Abstract <a name="abstract"></a>:
 
-Meta-learning has been shown helpful for several tasks especially in computer vision with tasks like ImageNet 
-and Omniglot and on some NLP tasks but hasn’t gained much attention especially in enhancing cross-lingual transfer. 
-Unlike direct transfer learning which applies to new languages without adaptation and multi-tasking or joint training 
-which can still overfit to high-resourced languages and requires measures for balancing the different tasks and longer 
-training to reach stability, meta-learning is better fitted to enhance the generalizability to scenarios where we don’t
-have enough training instances in particular low-resourced languages. We have implemented a meta-learning based extension
- to cross-lingual base model for joint intent detection and slot filling and will use it to analyze the performance 
- trends in zero-shot transfer learning on typologically variant NLU datasets. 
+Multilingual models, such as M-BERT and XLM-R, have gained increasing popularity, due to their zero-shot cross-lingual transfer learning capabilities. However, their generalization ability is still inconsistent for typologically diverse languages and across different benchmarks. Recently, meta-learning has garnered attention as a promising technique for enhancing transfer-learning under low-resource scenarios: particularly for cross-lingual transfer in Natural Language Understanding (NLU).
 
-#### Requirements:
+In this work, we propose **X-METRA-ADA**, a **cross**-lingual **ME**ta-**TRA**nsfer learning **ADA**ptation approach for NLU. Our approach adapts MAML, an optimization-based meta-learning approach, to learn an adaptation to new languages. This adaptation is different from standard fine-tuning moving towards a more principled few-shot learning setup. We extensively evaluate our framework on two challenging cross-lingual NLU tasks: multilingual task-oriented dialog and typologically diverse question answering. We show how our approach outperforms supervised fine-tuning, reaching competitive performance on both tasks for most languages. Our analysis reveals that X-METRA-ADA can leverage limited data for a faster adaptation.
 
-conda create --name "zsl_nlu" python=3.6
+## 2. Requirements <a name="requirements"></a>:
 
-conda activate zsl_nlu
+* Python 3.6 or higher.
+* Depending on the task, you will need different requirements (and different package versions sometimes). For MTOD and QA, run scripts: sh nlu/requirements_mtod.sh and sh qa/requirments_qa.sh.
 
-conda install pytorch torchvision cudatoolkit=10.1 -c pytorch
-
-pip install pytorch_transformers pytorch_pretrained_bert scikit-learn transformers torchviz tensorboard
-
-If installing pytorch with cuda in Sensei, add links to cuda binaries by setting LD_LIBRARY_PATH in ~/.bashrc.
-
-#### Preparing/Loading the dataset:
-This code works for both [public Facebook NLU dataset](https://github.com/zliucr/mixed-language-training/tree/master/data/nlu/nlu_data) 
-and [Jarvis Intent dataset](https://git.corp.adobe.com/mhamdi/jarvis-multilingual/tree/meryem/data).Download them and
+## 3. Preparing/Loading the dataset <a name="datasets"></a>:
+This code works for both public Facebook NLU dataset obtained using the same processing as [mixed-language-training](https://github.com/zliucr/mixed-language-training/tree/master/data/nlu/nlu_data) 
+and [Jarvis Adobe Intent dataset](https://git.corp.adobe.com/mhamdi/jarvis-multilingual/tree/meryem/data). Download them and
 point --data-dir flag in pre_train_base.py and main.py towards their root directory containing the splits per language. 
-If working with Facebook NLU dataset use tsv as --data-format otherwise use json. The preprocessor will automatically
+If working with Facebook NLU dataset use tsv as --data-format, otherwise use json. The preprocessor will automatically
 know how to handle each dataset type.
 
-#### Running the code:
+For TyDiQA, please follow instructions in [XTREME](https://github.com/google-research/xtreme) to obtain the train and test splits. We also provide [here](https://drive.google.com/drive/folders/1NcYIU62QhsImxOzzgL3zK3PRWN28pZZz?usp=sharing) our further splitting of the train into 90:train for high-resource and 10:dev for low-resource settings.
 
+## 4. Cross-lingual Few-shot Meta Pseudo-Tasks<a name="metatasks"></a>:
+For details on how the support and query sets are sampled to generate pseudo-labelled tasks, please refer to nlu/meta_reader.py which creates training and adaptation batches of tasks. For QA, please refer to qa/data_utils.py especially functions like find_similarities_query_spt
+
+TODO explain more about QA pseudo-labelled tasks
+ 
+## 5. Training Multilingual Task-Oriented Dialogue (MTOD) <a name="mtod"></a>:
 1) Initializing the parameters \theta_{0}:
     * Pre-training the joint NLU Transformer model:
         * Offline: 
@@ -67,27 +71,25 @@ know how to handle each dataset type.
    
     * Zero-shot learning on Thai, Few-shot on Spanish:
     ```
-    python main.py --train --train-langs en --test-langs en es th --use-slots --trans-model "BertBaseMultilingualCased" 
+    python main.py --train --train-langs en --dev-langs es --test-langs en es th --use-slots --trans-model "BertBaseMultilingualCased" 
                    --data-dir "Facebook-NLU-Data/" --out-dir "out" --data-format "tsv" --pre-train-steps 2000 
                    --batch-size 32 --adam-lr 4e-5 --adam-eps 1e-08 --n-way 11 --k-spt 5 --q-qry 5 --k-tune 5 
                    --batch-sz 10000 --epoch 100 --n-task 4 --n-up-train-step 5 --n-up-test-step 5 --alpha-lr 1e-2 
                    --beta-lr 1e-3 --gamma-lr 1e-3          
     ```
-
-4) Training meta-learning Hybrid of MAML/Prototypical:
-
-COMING SOON
-
-5) Training meta-learning with auto-encoder alignment loss:
-
-COMING SOON
+    
+ Refer to nlu/scripts folder for a comprehensive list of experiments.
 
 
- #### Replicating experiments:
+ ## 6. Replicating experiments:
+ 
+Refer to qa/scripts folder for a comprehensive list of experiments.
 
-Please refer to scripts folder
+ 
+## 7. Other models<a name="other"></a>:
+We have developed and provide code for other models such as X-ProtoNets and X-HYMP (Hybrid of MAML and ProtoNets). We welcome any contributions to the code to improve their performance for those cross-lingual tasks.
 
- #### Reported Results:
+## 8. Reported Results/Visualisation<a name="viz"></a> (Coming Soon):
  
  Coming soon (will be in the form of visualizations in the notebooks folder and tensorboard runs folder)
  In the agenda:
@@ -95,11 +97,12 @@ Please refer to scripts folder
  * Quantitative Analysis:
      * Comparisons with:
         * Direct transfer learning (transformer alone)
-        * Joint or multi-tasking training 
+        * Fine-tuning
+        * Mixed fine-tuning
         * State of the art like mixed-training or latent variable model
      * Ablation studies:
         * Per language
-        * Per model component
+        * Per model component (with/wout adaptation)
         * Per loss component
         
  * Qualitative Analysis:
@@ -107,6 +110,14 @@ Please refer to scripts folder
     * Visualization of what amount of data leads to parameter changes and how it impacts the performance 
     * Fine-grained visualization of which layers are impacted by the meta-training
     * Which language help each other
- 
-
+## 9. Citation<a name="citation"></a>:
+<pre>
+@misc{mhamdi21xmetraada,
+    title={X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering},
+    author={Meryem M'hamdi, Doo Soon Kim, Franck Dernoncourt, Trung Bui, Xiang Ren and Jonathan May},
+    year={2021}
+}
+</pre>
+## 10. Credits<a name="credits"></a>
+The code in this repository is partially based on: [mixed-language-training](https://github.com/zliucr/mixed-language-training) for the task-oriented dataset and cleaning code, [XTREME](https://github.com/google-research/xtreme) for base models, datasets and processing of TyDiQA, and [learn2learn](https://github.com/learnables/learn2learn) for X-METRA-ADA algorithm
  

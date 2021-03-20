@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch
-from crf_higher import *
+from crf import *
 
 SLOT_PAD = 0
 
@@ -14,11 +14,14 @@ class TransformerNLU(nn.Module):
         self.dropout = nn.Dropout(0.3)
         self.use_slots = use_slots
 
-        self.intent_classifier = nn.Linear(trans_model.config.hidden_size, num_intents)
+        self.intent_classifier = nn.Linear(trans_model.config.hidden_size,
+                                           num_intents)
+
         self.intent_criterion = torch.nn.CrossEntropyLoss()
 
         if use_slots:
-            self.slot_classifier = nn.Linear(trans_model.config.hidden_size, num_slots)
+            self.slot_classifier = nn.Linear(trans_model.config.hidden_size,
+                                             num_slots)
             self.crf_layer = CRF(num_slots)
 
     def forward(self, input_ids, intent_labels=None, slot_labels=None):
@@ -35,11 +38,13 @@ class TransformerNLU(nn.Module):
         pooled_output = self.dropout(cls_token)
 
         logits_intents = self.intent_classifier(pooled_output)
-        intent_loss = self.intent_criterion(logits_intents, intent_labels)
+        intent_loss = self.intent_criterion(logits_intents,
+                                            intent_labels)
 
         if self.use_slots:
             logits_slots = self.slot_classifier(lm_output[0])
-            slot_loss = self.crf_layer.loss(logits_slots, slot_labels)
+            slot_loss = self.crf_layer.loss(logits_slots,
+                                            slot_labels)
 
         if intent_labels is not None:
             if slot_labels is None:
@@ -61,7 +66,7 @@ class TransformerNLU(nn.Module):
             crf_loss: loss of crf
         """
         prediction = self.crf_layer(inputs)
-        prediction = [prediction[i, :length].data.cpu().numpy() for i, length in enumerate(lengths) ]
+        prediction = [prediction[i, :length].data.cpu().numpy() for i, length in enumerate(lengths)]
 
         return prediction
 

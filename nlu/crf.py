@@ -18,12 +18,19 @@ class CRF(nn.Module):
         super(CRF, self).__init__()
 
         self.num_tags = num_tags
-        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags), requires_grad=True)
-        self.start_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True)
-        self.stop_transitions = nn.Parameter(torch.randn(num_tags), requires_grad=True)
+        self.transitions = nn.Parameter(torch.Tensor(num_tags, num_tags),
+                                        requires_grad=True)
+
+        self.start_transitions = nn.Parameter(torch.randn(num_tags),
+                                              requires_grad=True)
+
+        self.stop_transitions = nn.Parameter(torch.randn(num_tags),
+                                             requires_grad=True)
 
         nn.init.xavier_normal_(self.transitions)
-        self.params = {"transitions": self.transitions, "start_transitions": self.start_transitions,
+
+        self.params = {"transitions": self.transitions,
+                       "start_transitions": self.start_transitions,
                        "stop_transitions": self.stop_transitions}
 
     def forward(self, feats, params=None):
@@ -63,8 +70,13 @@ class CRF(nn.Module):
         if feats.shape[:2] != tags.shape:
             raise ValueError('First two dimensions of feats and tags must match ', feats.shape, tags.shape)
 
-        sequence_score = self._sequence_score(feats, tags, params)
-        partition_function = self._partition_function(feats, params)
+        sequence_score = self._sequence_score(feats,
+                                              tags,
+                                              params)
+
+        partition_function = self._partition_function(feats,
+                                                      params)
+
         log_probability = sequence_score - partition_function
 
         # -ve of l()

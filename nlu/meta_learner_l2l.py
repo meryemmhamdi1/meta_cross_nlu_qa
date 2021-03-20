@@ -3,8 +3,6 @@ from torch import nn
 import torch
 
 from sklearn.metrics import f1_score, precision_score, recall_score
-from copy import deepcopy
-from tqdm import tqdm
 import learn2learn as l2l
 
 

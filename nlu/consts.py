@@ -1,0 +1,42 @@
+intent_types = [
+    'alarm/cancel_alarm',
+    'alarm/modify_alarm',
+    'alarm/set_alarm',
+    'alarm/show_alarms',
+    'alarm/snooze_alarm',
+    'alarm/time_left_on_alarm',
+    'reminder/cancel_reminder',
+    'reminder/set_reminder',
+    'reminder/show_reminders',
+    'weather/checkSunrise',
+    'weather/checkSunset',
+    'weather/find'
+]
+
+slot_types = [
+    'B-alarm/alarm_modifier',
+    'B-alarm/recurring_period',
+    'B-datetime',
+    'B-location',
+    'B-reminder/noun',
+    'B-reminder/recurring_period',
+    'B-reminder/reference',
+    'B-reminder/reminder_modifier',
+    'B-reminder/todo',
+    'B-weather/attribute',
+    'B-weather/noun',
+    'B-weather/temperatureUnit',
+    'I-alarm/alarm_modifier',
+    'I-alarm/recurring_period',
+    'I-datetime',
+    'I-location',
+    'I-reminder/noun',
+    'I-reminder/recurring_period',
+    'I-reminder/reference',
+    'I-reminder/reminder_modifier',
+    'I-reminder/todo',
+    'I-weather/attribute',
+    'I-weather/noun',
+    'O',
+    'X'
+]

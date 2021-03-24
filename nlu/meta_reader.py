@@ -37,10 +37,10 @@ class MetaDataset(Dataset):
             all_qry_set_batch.update({lang: self.dataset.next_batch_list(self.dataset.qry_size[lang], self.qry_set[lang])})
 
         inp_txt_spt_all, inp_ids_spt_all, tok_typ_ids_spt_all, att_masks_spt_all, len_spt_all, int_l_spt_all, \
-            slot_l_spt_all, inp_txt_qry_all, inp_ids_qry_all, tok_typ_ids_qry_all, att_masks_qry_all, len_qry_all, \
-            int_l_qry_all, slot_l_qry_all = [], [], [], [], [], [], [], [], [], [], [], [], [], []
+        slot_l_spt_all, inp_txt_qry_all, inp_ids_qry_all, tok_typ_ids_qry_all, att_masks_qry_all, len_qry_all, \
+        int_l_qry_all, slot_l_qry_all = [], [], [], [], [], [], [], [], [], [], [], [], [], []
 
-        distinct_classes = set(all_spt_set_batch[2])
+        distinct_classes = set(all_spt_set_batch[2]) #list(set(all_spt_set_batch[2]) & set(all_qry_set_batch[2]))
         for lang in all_qry_set_batch:
             distinct_classes = distinct_classes & set(all_qry_set_batch[lang][2])
 
@@ -49,7 +49,7 @@ class MetaDataset(Dataset):
             classes_set = random.sample(distinct_classes,  k=len(distinct_classes))
 
             inp_txt_spt_b, inp_ids_spt_b, tok_typ_ids_spt_b, att_masks_spt_b, len_spt_b, int_l_spt_b, slot_l_spt_b, \
-                inp_txt_qry_b, inp_ids_qry_b, tok_typ_ids_qry_b, att_masks_qry_b, len_qry_b, int_l_qry_b, slot_l_qry_b \
+            inp_txt_qry_b, inp_ids_qry_b, tok_typ_ids_qry_b, att_masks_qry_b, len_qry_b, int_l_qry_b, slot_l_qry_b \
                 = [], [], [], [], [], [], [], [], [], [], [], [], [], []
 
             inp_ids_spt_b_pad = []
@@ -137,10 +137,10 @@ class MetaDataset(Dataset):
             int_l_qry_all.append(int_l_qry_b)
             slot_l_qry_all.append(slot_qry_pad)
 
-        return LongTensor(inp_ids_spt_all), LongTensor(tok_typ_ids_spt_all), LongTensor(att_masks_spt_all),\
-            LongTensor(len_spt_all), LongTensor(int_l_spt_all), LongTensor(slot_l_spt_all), \
-            LongTensor(inp_ids_qry_all), LongTensor(tok_typ_ids_qry_all), LongTensor(att_masks_qry_all), \
-            LongTensor(len_qry_all), LongTensor(int_l_qry_all), LongTensor(slot_l_qry_all)
+        return LongTensor(inp_ids_spt_all), LongTensor(tok_typ_ids_spt_all), LongTensor(att_masks_spt_all), \
+               LongTensor(len_spt_all), LongTensor(int_l_spt_all), LongTensor(slot_l_spt_all), \
+               LongTensor(inp_ids_qry_all), LongTensor(tok_typ_ids_qry_all), LongTensor(att_masks_qry_all), \
+               LongTensor(len_qry_all), LongTensor(int_l_qry_all), LongTensor(slot_l_qry_all)
 
     def create_auxi_meta_adapt_batches(self):
         """
@@ -157,7 +157,7 @@ class MetaDataset(Dataset):
         for lang in self.tune_set:
             all_set_batch.update({lang: self.dataset.next_batch_list(self.dataset.tune_size[lang], self.tune_set[lang])})
 
-        inp_txt_spt_tune, inp_ids_spt_tune, tok_typ_ids_spt_tune, att_masks_spt_tune, len_spt_tune, int_l_spt_tune,\
+        inp_txt_spt_tune, inp_ids_spt_tune, tok_typ_ids_spt_tune, att_masks_spt_tune, len_spt_tune, int_l_spt_tune, \
         slot_l_spt_tune, inp_txt_qry_tune, inp_ids_qry_tune, tok_typ_ids_qry_tune, att_masks_qry_tune, len_qry_tune, \
         int_l_qry_tune, slot_l_qry_tune = [], [], [], [], [], [], [], [], [], [], [], [], [], []
 
@@ -238,13 +238,13 @@ class MetaDataset(Dataset):
             slot_l_qry_tune.append(slot_qry_pad)
 
         return LongTensor(inp_ids_spt_tune), LongTensor(tok_typ_ids_spt_tune), LongTensor(att_masks_spt_tune), \
-            LongTensor(len_spt_tune), LongTensor(int_l_spt_tune), LongTensor(slot_l_spt_tune), \
-            LongTensor(inp_ids_qry_tune), LongTensor(tok_typ_ids_qry_tune), LongTensor(att_masks_qry_tune),\
-            LongTensor(len_qry_tune), LongTensor(int_l_qry_tune), LongTensor(slot_l_qry_tune)
+               LongTensor(len_spt_tune), LongTensor(int_l_spt_tune), LongTensor(slot_l_spt_tune), \
+               LongTensor(inp_ids_qry_tune), LongTensor(tok_typ_ids_qry_tune), LongTensor(att_masks_qry_tune), \
+               LongTensor(len_qry_tune), LongTensor(int_l_qry_tune), LongTensor(slot_l_qry_tune)
 
     def next_batch(self, all_batches, batch_size, i):
         inp_ids_spt_all, tok_typ_ids_spt_all, att_masks_spt_all, len_spt_all, int_l_spt_all, slot_l_spt_all, \
-            inp_ids_qry_all, tok_typ_ids_qry_all, att_masks_qry_all, len_qry_all, int_l_qry_all, slot_l_qry_all \
+        inp_ids_qry_all, tok_typ_ids_qry_all, att_masks_qry_all, len_qry_all, int_l_qry_all, slot_l_qry_all \
             = all_batches
 
         inp_ids_spt_batch = inp_ids_spt_all[batch_size*i:batch_size*(i+1)]
@@ -262,8 +262,8 @@ class MetaDataset(Dataset):
         slot_l_qry_batch = slot_l_qry_all[batch_size*i:batch_size*(i+1)]
 
         return inp_ids_spt_batch, tok_typ_ids_spt_batch, att_masks_spt_batch, len_spt_batch, int_l_spt_batch, \
-            slot_l_spt_batch, inp_ids_qry_batch, tok_typ_ids_qry_batch, att_masks_qry_batch, \
-            len_qry_batch, int_l_qry_batch, slot_l_qry_batch
+               slot_l_spt_batch, inp_ids_qry_batch, tok_typ_ids_qry_batch, att_masks_qry_batch, \
+               len_qry_batch, int_l_qry_batch, slot_l_qry_batch
 
     def __getitem__(self, index):
         batch = set()
@@ -274,13 +274,3 @@ class MetaDataset(Dataset):
 
     def __len__(self):
         return self.batch_sz
-
-
-
-
-
-
-
-
-
-

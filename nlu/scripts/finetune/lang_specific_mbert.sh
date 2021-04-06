@@ -7,7 +7,7 @@ model="BertBaseMultilingualCased"
 echo "FINE TUNING ON EACH LANGUAGE INDEPENDENTLY"
 for LANG in es th
 do
-    echo "FINE-TUNING on"$LANG
+    echo "FINE-TUNING on "$LANG
     for SEED in 42 35 119 40
     do
         python main.py --option "FT"  --use-slots --train-langs en --dev-langs $LANG --test-langs en es th \

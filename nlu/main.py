@@ -128,7 +128,8 @@ def run(args, data_config, pre_train_config, opt_config, pre_trained_model_path)
                       tune_paths,
                       test_paths,
                       portion_l,
-                      intent_types, slot_types)
+                      intent_types,
+                      slot_types)
 
     print("Initializing Base Transformer NLU model")
     model_trans = MODELS_dict[args.trans_model][2].from_pretrained(MODELS_dict[args.trans_model][0],
@@ -250,7 +251,10 @@ def run(args, data_config, pre_train_config, opt_config, pre_trained_model_path)
         meta_learner.cuda()
         device_ids = list(range(torch.cuda.device_count()))
         if args.use_dpp:
-            meta_learner = DDP(meta_learner, device_ids=device_ids, output_device=0, broadcast_buffers=False,
+            meta_learner = DDP(meta_learner,
+                               device_ids=device_ids,
+                               output_device=0,
+                               broadcast_buffers=False,
                                find_unused_parameters=True)
 
     # 4. Meta-training

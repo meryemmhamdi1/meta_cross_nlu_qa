@@ -1,6 +1,6 @@
 # Meta-Transfer Learning for X-NLU:
 
-This is a pytorch/learn2learn implementation for cross-lingual Transfer Learning NLU based on different flavours of meta-learning. This repository contains code for replicating experiments for task-oriented dialogue and typologically diverse question answering using meta-learning algorithms described in this paper: "X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering (M'hamdi et al. 2021)" to appear in NAACL'21.    
+This is a pytorch/learn2learn implementation for cross-lingual Transfer Learning NLU using different techniques of meta-learning. This repository contains code for replicating experiments for task-oriented dialogue and typologically diverse question answering using meta-learning algorithms described in this paper: "X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering (M'hamdi et al. 2021)" to appear in NAACL'21.    
 
 ## Table of Contents:
 
@@ -8,8 +8,8 @@ This is a pytorch/learn2learn implementation for cross-lingual Transfer Learning
 2. [Requirements](#requirements)
 3. [Datasets](#datasets)
 4. [Cross-lingual Few-shot Meta Pseudo-Tasks](#metatasks)
-5. [Few-shot Multilingual Task-Oriented Dialogue (MTOD)](#mtod)
-6. [Few-Shot TyDiQA](#qa)
+5. [Meta-learning on Multilingual Task-Oriented Dialogue (MTOD)](#mtod)
+6. [Meta-learning on Few-Shot TyDiQA](#qa)
 7. [Other Models](#other)
 8. [Citation](#citation)
 9. [Credits](#credits)
@@ -26,7 +26,10 @@ In this work, we propose **X-METRA-ADA**, a **cross**-lingual **ME**ta-**TRA**ns
 ## 2. Requirements <a name="requirements"></a>:
 
 * Python 3.6 or higher.
-* Depending on the task, you will need different requirements (and different package versions sometimes). For MTOD and QA, run scripts: sh nlu/requirements_mtod.sh and sh qa/requirments_qa.sh.
+* Depending on the task, you will need different requirements (and different package versions sometimes). For MTOD, run scripts: sh nlu/requirements_mtod.sh
+* As there is a dependency conflict between version of transformers that we used to comply with XTREME and the one required by sentence-transformers, we use two different scripts requiring different requirements:
+    * sh qa/requirements_sim_qa.sh: to pre-compute the matrix of similarities between the support and query matrices
+    * sh qa/requirements_qa.sh: for the full script (using pre-computed similarities). 
 
 ## 3. Preparing/Loading the dataset <a name="datasets"></a>:
 This code works for both public Facebook NLU dataset obtained using the same processing as [mixed-language-training](https://github.com/zliucr/mixed-language-training/tree/master/data/nlu/nlu_data) 
@@ -83,7 +86,7 @@ TODO explain more about QA pseudo-labelled tasks
  Refer to nlu/scripts folder for a comprehensive list of experiments.
 
 
- ## 6. Replicating experiments:
+ ## 6. Training Multilingual Task-Oriented Dialogue (QA):
  
 Refer to qa/scripts folder for a comprehensive list of experiments.
 
@@ -93,7 +96,7 @@ We have developed and provide code for other models such as X-ProtoNets and X-HY
 
 ## 8. Reported Results/Visualisation<a name="viz"></a> (Coming Soon):
  
- Coming soon (will be in the form of visualizations in the notebooks folder and tensorboard runs folder)
+ Coming soon (will be in the form of visualizations in the notebooks folder)
  In the agenda:
  
  * Quantitative Analysis:

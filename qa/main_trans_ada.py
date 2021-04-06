@@ -15,6 +15,20 @@ import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
+## Optimization
+from transformers import (
+    WEIGHTS_NAME,
+    AdamW,
+    get_linear_schedule_with_warmup,
+)
+
+## SQUAD Metrics
+from transformers.data.metrics.squad_metrics import (
+    compute_predictions_log_probs,
+    compute_predictions_logits,
+    squad_evaluate,
+)
+
 try:
     from torch.utils.tensorboard import SummaryWriter
 except ImportError:
@@ -118,7 +132,7 @@ def to_list(tensor):
 
 def evaluate(tokenizer, model, features, examples, dataset, language, prefix, eval_batch_size, model_type, out_dir,
              n_best_size, max_answer_length, version_2_with_negative, verbose_logging, do_lower_case,
-             null_score_diff_threshold, lang2id):
+             null_score_diff_threshold, lang2id, data_path):
 
     features, dataset = squad_convert_examples_to_features(
         examples=examples,
@@ -136,7 +150,7 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
     eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=1)
 
     all_results = []
-    for batch in eval_dataloader:#tqdm(eval_dataloader, desc="Evaluating"):
+    for batch in eval_dataloader:
         model.eval()
         batch = tuple(t.to(device) for t in batch)
 
@@ -228,9 +242,9 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
     #results = squad_evaluate(examples, predictions)
 
     if prefix == "test":
-        data_file = "/nas/clear/users/meryem/Datasets/QA/tydiqa/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
+        data_file = data_path + "/tydiqa-goldp-v1.1-dev/tydiqa." + language + ".test.json"
     else:
-        data_file = "/nas/clear/users/meryem/Datasets/QA/tydiqa/tydiqa-goldp-v1.1-train/tydiqa."+language+".train.json"
+        data_file = data_path + "/tydiqa-goldp-v1.1-train/tydiqa." + language + ".train.json"
 
     with open(data_file) as dataset_file:
         dataset_json = json.load(dataset_file)
@@ -248,54 +262,59 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
     model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[trans_model]
 
-    config = config_class.from_pretrained(config_name if config_name else model_name,
-                                         cache_dir=cache_dir if cache_dir else None)
+    config = config_class.from_pretrained(cache_dir)#config_name if config_name else model_name,
+    #cache_dir=cache_dir if cache_dir else None)
 
     # Set usage of language embedding to True if model is xlm
     if model_type == "xlm":
         config.use_lang_emb = True
 
-    tokenizer = tokenizer_class.from_pretrained(tokenizer_name if tokenizer_name else model_name,
-                                                do_lower_case=do_lower_case,
-                                                cache_dir=cache_dir if cache_dir else None)
+    tokenizer = tokenizer_class.from_pretrained(cache_dir)
+    #tokenizer_name if tokenizer_name else model_name,
+    #do_lower_case=do_lower_case,
+    #cache_dir=cache_dir if cache_dir else None)
 
     processor = SquadV2Processor() if version_2_with_negative else SquadV1Processor()
 
     print("CONSTRUCTION of Train examples and their conversion to features and dataset>>>>>")
-    train_examples = processor.get_train_examples(data_dir, languages=train_langs)
+    train_examples = processor.get_train_examples(data_dir, task="tydiqa", languages=train_langs)
 
     print("CONSTRUCTION of Dev examples for Meta-learning and their conversion to features and dataset")
+    if use_adapt:
+        # Loading from x-metra-ada directory
+        load_dir = os.path.join("sim_datasets", 'x-metra-ada')
 
-    #spt_examples = processor.get_train_examples(data_dir, languages=train_langs)
-                   #+ processor.get_dev_examples(data_dir, languages=train_langs)
+        ## Meta-training
+        with open(os.path.join(load_dir, 'spt_examples.pkl'), 'rb') as f:
+            spt_examples = pickle.load(f)
 
-    """
-    spt_examples = processor.get_dev_examples(data_dir, languages=dev_langs)
+        with open(os.path.join(load_dir, dev_langs[0]+'_qry_examples.pkl'), 'rb') as f:
+            qry_examples = pickle.load(f)
 
-    qry_examples = processor.get_dev_examples(data_dir, languages=dev_langs)
+        ## Meta-adaptation
+        with open(os.path.join(load_dir, dev_langs[0]+'_tune_spt_examples.pkl'), 'rb') as f:
+            tune_spt_examples = pickle.load(f)
 
-    find_similarities_query_spt(spt_examples, qry_examples)
+        with open(os.path.join(load_dir, dev_langs[0]+'_tune_qry_examples.pkl'), 'rb') as f:
+            tune_qry_examples = pickle.load(f)
 
-    with open('spt_examples_QRY.pkl', 'wb') as f:
-       pickle.dump(spt_examples, f)
+    else:
+        # Loading from x-metra directory
+        load_dir = os.path.join("sim_datasets", 'x-metra')
 
-    with open(dev_langs[0]+'_qry_examples_QRY.pkl', 'wb') as f:
-        pickle.dump(qry_examples, f)
+        ## Meta-training
+        with open(os.path.join(load_dir, 'spt_examples.pkl'), 'rb') as f:
+            spt_examples = pickle.load(f)
 
-    """
+        with open(os.path.join(load_dir, dev_langs[0]+'_qry_examples.pkl'), 'rb') as f:
+            qry_examples = pickle.load(f)
 
-    with open('spt_examples_train.pkl', 'rb') as f:
-    #with open('spt_examples_QRY.pkl', 'rb') as f:
-        spt_examples = pickle.load(f)
+    #model = qa_class.from_pretrained(model_name,
+    #                                 from_tf=bool(".ckpt" in model_name),
+    #                                 config=config,
+    #                                 cache_dir=cache_dir if cache_dir else None)
 
-    with open(dev_langs[0]+'_qry_examples_EN_train.pkl', 'rb') as f:
-    #with open(dev_langs[0]+'_qry_examples_QRY.pkl', 'rb') as f:
-        qry_examples = pickle.load(f)
-
-    model = qa_class.from_pretrained(model_name,
-                                     from_tf=bool(".ckpt" in model_name),
-                                     config=config,
-                                     cache_dir=cache_dir if cache_dir else None)
+    model = qa_class.from_pretrained(cache_dir)
 
     lang2id = config.lang2id if model_type == "xlm" else None
 
@@ -327,21 +346,21 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
         lang2id=lang2id
     )
 
-    _ , adapt_dataset = meta_adapt_squad_convert_examples_to_features(
-        qry_examples=qry_examples,
-        tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
-        opt_config=opt_config,
-        data_config=data_config,
-        is_training=True,
-        return_dataset="pt",
-        threads=8,
-        lang2id=lang2id
-    )
-
-    #torch.save(few_shot_dataset, dev_langs[0]+ "_few_shot_dataset.pt")
+    if use_adapt:
+        tune_spt_features, tune_qry_features, ada_few_shot_dataset = meta_squad_convert_examples_to_features(
+            spt_examples=tune_spt_examples,
+            qry_examples=tune_qry_examples,
+            tokenizer=tokenizer,
+            max_seq_length=max_seq_length,
+            doc_stride=doc_stride,
+            max_query_length=max_query_length,
+            opt_config=opt_config,
+            data_config=data_config,
+            is_training=True,
+            return_dataset="pt",
+            threads=8,
+            lang2id=lang2id
+        )
 
     print("CONSTRUCTION of Test examples")
 
@@ -349,7 +368,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
     test_dataset = {}
     test_examples = {}
     for lang in test_langs:
-        test_examples.update({lang: processor.get_test_examples(data_dir, language=lang)})
+        test_examples.update({lang: processor.get_test_examples(data_dir, language=lang, task="tydiqa")})
         print("Test examples convertion to features %s len(test_examples[lang]):%d", lang, len(test_examples[lang]))
         test_features_lang, test_dataset_lang = squad_convert_examples_to_features(examples=test_examples[lang],
                                                                                    tokenizer=tokenizer,
@@ -452,17 +471,16 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                     logging_loss = tr_loss
 
                     ## Evaluation on train, test datasets
-                    """
-                    train_results = evaluate(tokenizer, model, train_features, train_examples, train_dataset,
-                                             ",".join(train_langs), "train", pre_train_config["eval_batch_size"],
-                                             model_type, out_dir, pre_train_config["n_best_size"],
-                                             pre_train_config["max_answer_length"], version_2_with_negative,
-                                             verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
 
-                    print("train_results:", train_results)
-                    for key, value in train_results.items():
-                        writer.add_scalar("train_{}".format(key), value, global_step)
-                    """
+                    #train_results = evaluate(tokenizer, model, train_features, train_examples, train_dataset,
+                    #                         ",".join(train_langs), "train", pre_train_config["eval_batch_size"],
+                    #                         model_type, out_dir, pre_train_config["n_best_size"],
+                    #                         pre_train_config["max_answer_length"], version_2_with_negative,
+                    #                         verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_dir)
+
+                    #print("train_results:", train_results)
+                    #for key, value in train_results.items():
+                    #    writer.add_scalar("train_{}".format(key), value, global_step)
 
                 if pre_train_config["save_steps"] > 0 and global_step % pre_train_config["save_steps"] == 0:
                     output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
@@ -480,18 +498,17 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                     torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                     logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
-    """
     for lang in test_langs:
         test_results = evaluate(tokenizer, model, test_features[lang], test_examples[lang], test_dataset[lang],
                                 lang, "test", pre_train_config["eval_batch_size"],
                                 model_type, out_dir, pre_train_config["n_best_size"],
                                 pre_train_config["max_answer_length"], version_2_with_negative,
-                                verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
+                                verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_dir)
 
         print("lang:", lang, " test_results:", test_results)
         for key, value in test_results.items():
             writer.add_scalar("test_{}_{}".format(lang, key), value, 0)
-    """
+
 
     ### Support + Query
     fst_sampler = RandomSampler(few_shot_dataset)
@@ -501,12 +518,11 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
     fst_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=pre_train_config["warmup_steps"],
                                                     num_training_steps=t_total)
 
-    ada_sampler = RandomSampler(adapt_dataset)
-    ada_dataloader = DataLoader(adapt_dataset, sampler=ada_sampler, batch_size=opt_config["n_task"])
+    if use_adapt:
+        ada_sampler = RandomSampler(ada_few_shot_dataset)
+        ada_dataloader = DataLoader(ada_few_shot_dataset, sampler=ada_sampler, batch_size=opt_config["n_task"])
 
-    t_total = len(ada_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
-    data_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=pre_train_config["warmup_steps"],
-                                                     num_training_steps=t_total)
+        t_total = len(ada_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
 
     meta_learner = MetaLearner(opt_config, model, device, freeze_bert, use_adapt)
     meta_learner.cuda()
@@ -516,7 +532,10 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
         if global_step == 1200:
             break
         epoch_iterator = tqdm(fst_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
-        ada_epoch_iterator = tqdm(ada_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
+        if use_adapt:
+            ada_epoch_iterator = tqdm(ada_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
+        else:
+            ada_epoch_iterator = epoch_iterator
         for step, (batch, ada_batch) in enumerate(zip(epoch_iterator, ada_epoch_iterator)):
             meta_train_error, meta_tune_error = 0.0, 0.0
             ## META-TRAINING BATCH
@@ -582,18 +601,21 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
                 meta_train_error += loss_qry.item()
 
-            if use_adapt and global_step%50 == 0:
-                for ja in range(opt_config["n_task"]):
-                    learner = maml.clone()
+                if use_adapt:
+                    #for ja in range(opt_config["n_task"]):
+                    #    learner = maml.clone()
                     for _ in range(0, opt_config["n_up_test_step"]):
-                        tune_outputs = learner(**ada_spt_inputs[ja])
+                        tune_outputs = learner(**ada_spt_inputs[j])
                         tune_loss = tune_outputs[0]
 
                         tune_loss = tune_loss.mean()
-
                         learner.adapt(tune_loss, allow_nograd=True, allow_unused=True)
 
-                        meta_tune_error += tune_loss.item()
+                    # On the query data
+                    loss_qry = learner(**ada_qry_inputs[j])[0].mean()
+
+                    loss_qry.backward()
+                    meta_train_error += loss_qry.item()
 
             # Average the accumulated gradients and optimize
             for p in maml.parameters():
@@ -603,19 +625,15 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             fst_scheduler.step()
             model.zero_grad()
 
-            """
-            
-            outputs = model(**qry_inputs)
+            #outputs = model(**qry_inputs)
 
-            loss = outputs[0]
-            loss.mean()
-            loss.backward()
+            #loss = outputs[0]
+            #loss.mean()
+            #loss.backward()
 
-            optimizer.step()
-            qry_scheduler.step()  # Update learning rate schedule
-            model.zero_grad()
-            
-            """
+            #optimizer.step()
+            #qry_scheduler.step()  # Update learning rate schedule
+            #model.zero_grad()
 
             writer.add_scalar("META_train_error", meta_train_error, global_step)
             writer.add_scalar("META_tune_error", meta_tune_error, global_step)
@@ -625,16 +643,16 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
                     # Take care of distributed/parallel training
-                model_to_save = model.module if hasattr(model, "module") else model
-                model_to_save.save_pretrained(output_dir)
-                tokenizer.save_pretrained(output_dir)
+                #model_to_save = model.module if hasattr(model, "module") else model
+                #model_to_save.save_pretrained(output_dir)
+                #tokenizer.save_pretrained(output_dir)
 
-                torch.save(args, os.path.join(output_dir, "training_args.bin"))
-                logger.info("Saving model checkpoint to %s", output_dir)
+                #torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                #logger.info("Saving model checkpoint to %s", output_dir)
 
-                torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                logger.info("Saving optimizer and scheduler states to %s", output_dir)
+                #torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                #torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                #logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
             if global_step % 20 == 0:
                 for lang in test_langs:
@@ -642,7 +660,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                                             lang, "test", pre_train_config["eval_batch_size"],
                                             model_type, out_dir, pre_train_config["n_best_size"],
                                             pre_train_config["max_answer_length"], version_2_with_negative,
-                                            verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
+                                            verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_dir)
 
                     print("META lang:", lang, " test_results:", test_results)
                     for key, value in test_results.items():
@@ -666,10 +684,6 @@ def get_arguments():
     parser.add_argument("--train-langs", help="train languages list", nargs="+", default=[])
     parser.add_argument("--dev-langs", help="dev languages list", nargs="+", default=[])
     parser.add_argument("--test-langs", help="test languages list", nargs="+", default=[])
-    parser.add_argument('--use-few-shot', help='If true, use test languages in the meta-adaptation stage',
-                        action='store_true')  # zero-shot by default
-
-    parser.add_argument('--use-slots', help='If true, optimize for slot filling loss too', action='store_true')
 
     parser.add_argument('--data-dir', help='Path of data',  default="")
 
@@ -687,7 +701,7 @@ def get_arguments():
                                                                     "how much stride to take between chunks.")
 
     parser.add_argument("--max-query-length", default=64, type=int, help="The maximum number of tokens for the question"
-                        ". Questions longer than this will be truncated to this length.")
+                                                                         ". Questions longer than this will be truncated to this length.")
 
     parser.add_argument("--n-best-size", default=20, type=int, help="The total number of n-best predictions to generate"
                                                                     " in the nbest_predictions.json output file.")
@@ -711,6 +725,7 @@ def get_arguments():
                              "A number of warnings are expected for a normal SQuAD evaluation.")
 
     parser.add_argument("--trans-model", help="name of transformer model", default="BertBaseMultilingualCased")
+
     parser.add_argument("--config-name", default="", type=str, help="Pretrained config name or path if not the same "
                                                                     "as model_name")
 
@@ -760,7 +775,7 @@ def get_arguments():
                         default=5)
 
     parser.add_argument('--n-up-test-step', help="Number of update steps in the meta-update stage", type=int,
-                        default=10)
+                        default=5)
 
     parser.add_argument('--alpha-lr', help='Learning rate during the meta-training stage (inner loop)', type=int,
                         default=1e-2)
@@ -812,10 +827,10 @@ if __name__ == "__main__":
     if len(args.freeze_bert) > 0:
         freeze_bert_flag = "freeze_bert_" + ",".join(args.freeze_bert)
 
-    out_dir = os.path.join(args.out_dir, "MAML_ADA_SEED"+str(args.seed)+"/train_"+",".join(args.train_langs)+"-test_"+",".join(args.test_langs)
-                           + "/l2l/kspt_" + str(data_config["k_spt"]) + "-qqry_" + str(data_config["q_qry"])
-                           + "/en_train_set/" + freeze_bert_flag + "/few_shot_"+",".join(args.dev_langs)+"/"
-                           + flag_adapt)
+    out_dir = os.path.join(args.out_dir, "MAML_ADA_SEED"+str(args.seed)+"/train_"+",".join(args.train_langs)+"-test_"
+                           + ",".join(args.test_langs) + "/l2l/kspt_" + str(data_config["k_spt"]) + "-qqry_"
+                           + str(data_config["q_qry"]) + "/en_train_set/" + freeze_bert_flag + "/few_shot_"
+                           + ",".join(args.dev_langs)+"/"+ flag_adapt)
 
     writer = SummaryWriter(os.path.join(out_dir, 'runs'))
 

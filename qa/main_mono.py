@@ -27,9 +27,6 @@ from data_utils import (
     squad_convert_examples_to_features
 )
 
-import learn2learn as l2l
-from meta_learner_l2l import *
-
 no_decay = ["bias", "LayerNorm.weight"]
 
 

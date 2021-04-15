@@ -19,8 +19,6 @@
 import json
 import logging
 import os
-from functools import partial
-from multiprocessing import Pool, cpu_count
 
 import numpy as np
 from tqdm import tqdm
@@ -28,13 +26,11 @@ from tqdm import tqdm
 from transformers.file_utils import is_tf_available, is_torch_available
 from transformers.tokenization_bert import whitespace_tokenize
 from transformers import DataProcessor
-import torch.nn as nn
 
 if is_torch_available():
     import torch
     from torch.utils.data import TensorDataset
 
-from torch import LongTensor
 try:
     from sentence_transformers import SentenceTransformer
 except ImportError:
@@ -86,8 +82,6 @@ def _check_is_max_context(doc_spans, cur_span_index, position):
 
 def _new_check_is_max_context(doc_spans, cur_span_index, position):
     """Check if this is the 'max context' doc span for the token."""
-    # if len(doc_spans) == 1:
-    # return True
     best_score = None
     best_span_index = None
     for (span_index, doc_span) in enumerate(doc_spans):
@@ -123,7 +117,7 @@ def squad_convert_example_to_features(example, max_seq_length, doc_stride, max_q
         actual_text = " ".join(example.doc_tokens[start_position : (end_position + 1)])
         cleaned_answer_text = " ".join(whitespace_tokenize(example.answer_text))
         if actual_text.find(cleaned_answer_text) == -1:
-            #logger.warning("Could not find answer: '%s' vs. '%s'", actual_text, cleaned_answer_text)
+            logger.warning("Could not find answer: '%s' vs. '%s'", actual_text, cleaned_answer_text)
             return []
 
     tok_to_orig_index = []
@@ -302,6 +296,7 @@ def squad_convert_examples_to_features(
         examples, tokenizer, max_seq_length, doc_stride, max_query_length, is_training, return_dataset=False, threads=1,
         lang2id=None):
     """
+    Slightly modified by @meryem: NON-THREADED VERSION of squad_convert_examples_to_features
     Converts a list of examples into a list of features that can be directly given as input to a model.
     It is model-dependant and takes advantage of many of the tokenizer's features to create the model's inputs.
 
@@ -356,7 +351,7 @@ def squad_convert_examples_to_features(
     unique_id = 1000000000
     example_index = 0
     print("====> Features .....")
-    for example_features in tqdm(features): #tqdm(features, total=len(features), desc="add example index and unique id"):
+    for example_features in tqdm(features):
         if not example_features:
             continue
         for example_feature in example_features:
@@ -365,6 +360,7 @@ def squad_convert_examples_to_features(
             new_features.append(example_feature)
             unique_id += 1
         example_index += 1
+
     features = new_features
     del new_features
     if return_dataset == "pt":
@@ -504,7 +500,7 @@ def meta_squad_convert_examples_to_features(spt_examples, qry_examples, tokenize
     new_features = []
     unique_id = 1000000000
     example_index = 0
-    for example_features in spt_features: #tqdm(features, total=len(features), desc="add example index and unique id"):
+    for example_features in spt_features:
         if not example_features:
             continue
         for example_feature in example_features:
@@ -519,7 +515,7 @@ def meta_squad_convert_examples_to_features(spt_examples, qry_examples, tokenize
     new_features = []
     unique_id = 1000000000
     example_index = 0
-    for example_features in qry_features: #tqdm(features, total=len(features), desc="add example index and unique id"):
+    for example_features in qry_features:
         if not example_features:
             continue
         for example_feature in example_features:

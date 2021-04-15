@@ -566,6 +566,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             model.train()
 
             maml = l2l.algorithms.MAML(model, lr=fst_scheduler.get_lr()[0], first_order=True)
+            loss_qry_all = 0.0
             for j in range(opt_config["n_task"]):
                 learner = maml.clone()
 
@@ -577,14 +578,26 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
                     learner.adapt(loss, allow_nograd=True, allow_unused=True)
 
-                # On the query data
+                # On the query data at the end of n_train optimizations
                 loss_qry = learner(**qry_inputs[j])[0].mean()
-
-                loss_qry.backward()
-
+                loss_qry_all += loss_qry
                 meta_train_error += loss_qry.item()
 
-                if use_adapt:
+            # Outer loop => Average the accumulated gradients and optimize
+            loss_qry_all = loss_qry_all / opt_config["n_task"]
+            for p in maml.parameters():
+                if p.grad is not None:
+                    p.grad.mul_(1.0 / opt_config["n_task"])
+            loss_qry_all.backward()
+            optimizer.step()
+            fst_scheduler.step()
+            model.zero_grad()
+
+            loss_qry_tune_all = 0.0
+            if use_adapt:
+                for j in range(opt_config["n_task"]):
+                    learner = maml.clone()
+
                     for _ in range(0, opt_config["n_up_test_step"]):
                         tune_outputs = learner(**ada_spt_inputs[j])
                         tune_loss = tune_outputs[0]
@@ -592,19 +605,21 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                         tune_loss = tune_loss.mean()
                         learner.adapt(tune_loss, allow_nograd=True, allow_unused=True)
 
-                    # On the query data
+                    # On the query data at the end of n_adapt optimizations
                     loss_qry = learner(**ada_qry_inputs[j])[0].mean()
 
-                    loss_qry.backward()
-                    meta_train_error += loss_qry.item()
+                    loss_qry_tune_all += loss_qry
+                    meta_tune_error += loss_qry.item()
 
-            # Average the accumulated gradients and optimize
-            for p in maml.parameters():
-                if p.grad is not None:
-                    p.grad.mul_(1.0 / opt_config["n_task"])
-            optimizer.step()
-            fst_scheduler.step()
-            model.zero_grad()
+                # Average the accumulated gradients and optimize
+                loss_qry_tune_all = loss_qry_tune_all / opt_config["n_task"]
+                for p in maml.parameters():
+                    if p.grad is not None:
+                        p.grad.mul_(1.0 / opt_config["n_task"])
+                loss_qry_tune_all.backward()
+                optimizer.step()
+                fst_scheduler.step()
+                model.zero_grad()
 
             writer.add_scalar("META_train_error", meta_train_error, global_step)
             writer.add_scalar("META_tune_error", meta_tune_error, global_step)

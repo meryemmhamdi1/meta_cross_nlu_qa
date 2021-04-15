@@ -1,7 +1,6 @@
 #!/bin/bash
 data_path="" # Path to the root directory of TyDiQA dataset
 results_path="" # Path to the root results directory
-pre_trained_model_name="" # Path to the model pre-trained on English
 model="BertBaseMultilingualCased"
 
 echo "FINE TUNING ON EACH LANGUAGE INDEPENDENTLY + ENGLISH"

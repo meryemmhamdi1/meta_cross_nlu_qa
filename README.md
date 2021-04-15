@@ -38,7 +38,7 @@ point --data-dir flag in pre_train_base.py and main.py towards their root direct
 If working with Facebook NLU dataset use tsv as --data-format, otherwise use json. The preprocessor will automatically
 know how to handle each dataset type.
 
-For TyDiQA, please follow instructions in [XTREME](https://github.com/google-research/xtreme) to obtain the train and test splits. We also provide [here](https://drive.google.com/drive/folders/1NcYIU62QhsImxOzzgL3zK3PRWN28pZZz?usp=sharing) our further splitting of the train into 90:train for high-resource and 10:dev for low-resource settings.
+For TyDiQA, please follow instructions in [XTREME](https://github.com/google-research/xtreme) to obtain the train and test splits. We also provide [here](https://drive.google.com/drive/folders/1NcYIU62QhsImxOzzgL3zK3PRWN28pZZz?usp=sharing) our further splitting of the train into 90:train for high-resource and 10:dev for low-resource settings. You can find in the same link, our pseudo meta-tasks splits for meta-train and meta-adapt for X-METRA-ADA saved as pickle files.
 
 ## 4. Cross-lingual Few-shot Meta Pseudo-Tasks<a name="metatasks"></a>:
 For details on how the support and query sets are sampled to generate pseudo-labelled tasks, please refer to nlu/meta_reader.py which creates training and adaptation batches of tasks. For QA, please refer to qa/data_utils.py especially functions like find_similarities_query_spt

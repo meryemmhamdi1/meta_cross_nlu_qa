@@ -21,7 +21,7 @@ Multilingual models, such as M-BERT and XLM-R, have gained increasing popularity
 
 In this work, we propose **X-METRA-ADA**, a **cross**-lingual **ME**ta-**TRA**nsfer learning **ADA**ptation approach for NLU. Our approach adapts MAML, an optimization-based meta-learning approach, to learn an adaptation to new languages. This adaptation is different from standard fine-tuning moving towards a more principled few-shot learning setup. We extensively evaluate our framework on two challenging cross-lingual NLU tasks: multilingual task-oriented dialog and typologically diverse question answering. We show how our approach outperforms supervised fine-tuning, reaching competitive performance on both tasks for most languages. Our analysis reveals that X-METRA-ADA can leverage limited data for a faster adaptation.
 
-![image](xnluada1.png)
+![image](x-metra-ada.png)
 
 ## 2. Requirements <a name="requirements"></a>:
 
@@ -32,31 +32,30 @@ In this work, we propose **X-METRA-ADA**, a **cross**-lingual **ME**ta-**TRA**ns
     * sh qa/requirements_qa.sh: for the full script (using pre-computed similarities). 
 
 ## 3. Preparing/Loading the dataset <a name="datasets"></a>:
-This code works for both public Facebook NLU dataset obtained using the same processing as [mixed-language-training](https://github.com/zliucr/mixed-language-training/tree/master/data/nlu/nlu_data) 
-and [Jarvis Adobe Intent dataset](https://git.corp.adobe.com/mhamdi/jarvis-multilingual/tree/meryem/data). Download them and
+This code works for both public Facebook NLU dataset obtained using the same processing as [mixed-language-training](https://github.com/zliucr/mixed-language-training/tree/master/data/nlu/nlu_data). Download the data and
 point --data-dir flag in pre_train_base.py and main.py towards their root directory containing the splits per language. 
 If working with Facebook NLU dataset use tsv as --data-format, otherwise use json. The preprocessor will automatically
 know how to handle each dataset type.
 
-For TyDiQA, please follow instructions in [XTREME](https://github.com/google-research/xtreme) to obtain the train and test splits. We also provide [here](https://drive.google.com/drive/folders/1NcYIU62QhsImxOzzgL3zK3PRWN28pZZz?usp=sharing) our further splitting of the train into 90:train for high-resource and 10:dev for low-resource settings. You can find in the same link, our pseudo meta-tasks splits for meta-train and meta-adapt for X-METRA-ADA saved as pickle files.
-
+For TyDiQA, please follow instructions in [XTREME](https://github.com/google-research/xtreme) to obtain the train and test splits. We also provide [here](https://drive.google.com/drive/folders/1NcYIU62QhsImxOzzgL3zK3PRWN28pZZz?usp=sharing) our further splitting of the train into 90:train for high-resource and 10:dev for low-resource settings. 
 ## 4. Cross-lingual Few-shot Meta Pseudo-Tasks<a name="metatasks"></a>:
-For details on how the support and query sets are sampled to generate pseudo-labelled tasks, please refer to nlu/meta_reader.py which creates training and adaptation batches of tasks. For QA, please refer to qa/data_utils.py especially functions like find_similarities_query_spt
+For details on how the support and query sets are sampled to generate pseudo-labelled tasks, please refer to nlu/meta_reader.py which creates training and adaptation batches of tasks. 
 
-TODO explain more about QA pseudo-labelled tasks
+For details on how the support and query sets are generated for the meta-train and meta-adapt datasets, please refer to qa/pre_compute_similarities.py which relies on functions like find_similarities_query_spt in qa/data_utils.py. You can find, in the same link shared above, our pseudo meta-tasks splits for meta-train and meta-adapt for X-METRA-ADA saved as pickle files.
+
  
 ## 5. Training Multilingual Task-Oriented Dialogue (MTOD) <a name="mtod"></a>:
 1) Initializing the parameters \theta_{0}:
-    * Pre-training the joint NLU Transformer model:
+    * PRE: Fine-tuning of the joint NLU Transformer model on English Train:
         * Offline: 
         ```
-        python pre_train_base.py --train --train-langs en --test-langs en es th --use-slots --data-format "tsv"
+        python main_pre_en.py --train --train-langs en --test-langs en es th --use-slots --data-format "tsv"
                                  --trans-model "BertBaseMultilingualCased" --data-dir "Facebook-NLU-Data/"
                                  --out-dir "out" --pre-train-steps 2000 --batch-size 32 --adam-lr 4e-5
                                  --adam-eps 1e-08 
         ```
-        * As a part of the whole meta-learning pipeline:
-        run main.py which automatically calls pre_train_base functionalities for training and evaluation and to that 
+        * As a part of the whole meta-learning or target language fine-tuning pipeline:
+        run main.py which automatically calls main_pre_en functionalities for training and evaluation and to that 
         effect run main.py without setting --use-pretrained-model flag
         
     * Use of saved pre-trained model for NLU:
@@ -64,7 +63,7 @@ TODO explain more about QA pseudo-labelled tasks
     --pre-trained-model-name (see step 2 below)  
     
     
-2) Training meta-learning MAML:
+2) Training X-METRA-ADA:
     * Few-shot learning on Thai, Zero-shot on Spanish:
     ```
     python main.py --train --train-langs en --dev-langs th --test-langs en es th --use-slots --data-format "tsv" 
@@ -76,13 +75,12 @@ TODO explain more about QA pseudo-labelled tasks
    
     * Zero-shot learning on Thai, Few-shot on Spanish:
     ```
-    python main.py --train --train-langs en --dev-langs es --test-langs en es th --use-slots --trans-model "BertBaseMultilingualCased" 
-                   --data-dir "Facebook-NLU-Data/" --out-dir "out" --data-format "tsv" --pre-train-steps 2000 
-                   --batch-size 32 --adam-lr 4e-5 --adam-eps 1e-08 --n-way 11 --k-spt 5 --q-qry 5 --k-tune 5 
-                   --batch-sz 10000 --epoch 100 --n-task 4 --n-up-train-step 5 --n-up-test-step 5 --alpha-lr 1e-2 
-                   --beta-lr 1e-3 --gamma-lr 1e-3          
+    python main.py --option "META" --use-slots --train-langs en --dev-langs es --test-langs en es th --use-adapt --use-back --use-non-overlap \
+               --k-spt 6 --q-qry 6 --data-dir $data_path --out-dir $results_path --batch-sz 2500 --pre-train-steps 2000 --local_rank 0 \
+               --use-pretrained-model "pre_trained" --pre-trained-model-name $pre_trained_model_name --seed $SEED      
     ```
     
+
  Refer to nlu/scripts folder for a comprehensive list of experiments.
 
 
@@ -123,6 +121,8 @@ We have developed and provide code for other models such as X-ProtoNets and X-HY
     year={2021}
 }
 </pre>
+
+If you have any questions or feedback, feel free to send an email to meryem@isi.edu
 ## 10. Credits<a name="credits"></a>
 The code in this repository is partially based on: [mixed-language-training](https://github.com/zliucr/mixed-language-training) for the task-oriented dataset and cleaning code, [XTREME](https://github.com/google-research/xtreme) for base models, datasets and processing of TyDiQA, and [learn2learn](https://github.com/learnables/learn2learn) for X-METRA-ADA algorithm
  

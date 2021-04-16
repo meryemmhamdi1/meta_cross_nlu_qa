@@ -107,9 +107,8 @@ def to_list(tensor):
     return tensor.detach().cpu().tolist()
 
 
-def evaluate(tokenizer, model, features, examples, dataset, language, prefix, eval_batch_size, model_type, out_dir,
-             n_best_size, max_answer_length, version_2_with_negative, verbose_logging, do_lower_case,
-             null_score_diff_threshold, lang2id):
+def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, n_best_size, max_answer_length,
+             version_2_with_negative, verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_path):
 
     features, dataset = squad_convert_examples_to_features(
         examples=examples,
@@ -187,125 +186,110 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
         start_n_top = model.config.start_n_top if hasattr(model, "config") else model.module.config.start_n_top
         end_n_top = model.config.end_n_top if hasattr(model, "config") else model.module.config.end_n_top
 
-        predictions = compute_predictions_log_probs(examples,
-                                                    features,
-                                                    all_results,
-                                                    n_best_size,
-                                                    max_answer_length,
-                                                    output_prediction_file,
-                                                    output_nbest_file,
-                                                    output_null_log_odds_file,
-                                                    start_n_top,
-                                                    end_n_top,
-                                                    version_2_with_negative,
-                                                    tokenizer,
-                                                    verbose_logging)
+        compute_predictions_log_probs(examples,
+                                      features,
+                                      all_results,
+                                      n_best_size,
+                                      max_answer_length,
+                                      output_prediction_file,
+                                      output_nbest_file,
+                                      output_null_log_odds_file,
+                                      start_n_top,
+                                      end_n_top,
+                                      version_2_with_negative,
+                                      tokenizer,
+                                      verbose_logging)
     else:
-        predictions = compute_predictions_logits(examples,
-                                                 features,
-                                                 all_results,
-                                                 n_best_size,
-                                                 max_answer_length,
-                                                 do_lower_case,
-                                                 output_prediction_file,
-                                                 output_nbest_file,
-                                                 output_null_log_odds_file,
-                                                 verbose_logging,
-                                                 version_2_with_negative,
-                                                 null_score_diff_threshold,
-                                                 tokenizer)
+        compute_predictions_logits(examples,
+                                   features,
+                                   all_results,
+                                   n_best_size,
+                                   max_answer_length,
+                                   do_lower_case,
+                                   output_prediction_file,
+                                   output_nbest_file,
+                                   output_null_log_odds_file,
+                                   verbose_logging,
+                                   version_2_with_negative,
+                                   null_score_diff_threshold,
+                                   tokenizer)
 
-    # Compute the F1 and exact scores.
-    #results = squad_evaluate(examples, predictions)
+
+    with open(output_prediction_file) as prediction_file:
+        predictions = json.load(prediction_file)
+
     if prefix == "test":
-        #data_file = "/nas/clear/users/meryem/Datasets/QA/tydiqa/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
-        data_file = "/nas/clear/users/meryem/Datasets/QA/MLQA_V1/test/test-context-"+language+"-question-"+language+".json"
+        data_file = data_path + "/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
     else:
-        #data_file = "/nas/clear/users/meryem/Datasets/QA/tydiqa/tydiqa-goldp-v1.1-train/tydiqa."+language+".train.json"
-        data_file = "/nas/clear/users/meryem/Datasets/QA/SQUAD/squad/train-v1.1.json"
+        data_file = data_path + "/tydiqa-goldp-v1.1-train/tydiqa."+language+".train.json"
 
     with open(data_file) as dataset_file:
         dataset_json = json.load(dataset_file)
         dataset = dataset_json['data']
-    with open(output_prediction_file) as prediction_file:
-        predictions = json.load(prediction_file)
+
     results = evaluate_sq(dataset, predictions)
     return results
 
+def run(args, device, fine_tune_config, out_dir, writer):
 
-def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cache_dir, device, version_2_with_negative,
-        null_score_diff_threshold, verbose_logging, data_dir, train_langs, dev_langs, test_langs, max_seq_length,
-        doc_stride, max_query_length, pre_train_config, data_config, opt_config, out_dir, writer, freeze_bert,
-        use_pretrained_model, pre_trained_model_name):
+    model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[args.trans_model]
 
-    model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[trans_model]
-
-    config = config_class.from_pretrained(config_name if config_name else model_name,
-                                         cache_dir=cache_dir if cache_dir else None)
+    if args.cache_dir == "":
+        config = config_class.from_pretrained(args.config_name if args.config_name else model_name,
+                                             cache_dir=args.cache_dir if args.cache_dir else None)
+    else:
+        config = config_class.from_pretrained(args.cache_dir)
 
     # Set usage of language embedding to True if model is xlm
-    if model_type == "xlm":
+    if args.model_type == "xlm":
         config.use_lang_emb = True
 
-    tokenizer = tokenizer_class.from_pretrained(tokenizer_name if tokenizer_name else model_name,
-                                                do_lower_case=do_lower_case,
-                                                cache_dir=cache_dir if cache_dir else None)
+    if args.cache_dir == "":
+        tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else model_name,
+                                                    do_lower_case=args.do_lower_case,
+                                                    cache_dir=args.cache_dir if args.cache_dir else None)
 
-    model = qa_class.from_pretrained(model_name,
-                                     from_tf=bool(".ckpt" in model_name),
-                                     config=config,
-                                     cache_dir=cache_dir if cache_dir else None)
+        model = qa_class.from_pretrained(model_name,
+                                         from_tf=bool(".ckpt" in model_name),
+                                         config=config,
+                                         cache_dir=args.cache_dir if args.cache_dir else None)
+    else:
+        tokenizer = tokenizer_class.from_pretrained(args.cache_dir)
 
-    lang2id = config.lang2id if model_type == "xlm" else None
+        model = qa_class.from_pretrained(args.cache_dir)
+
+    lang2id = config.lang2id if args.model_type == "xlm" else None
 
     model.to(device)
 
-    processor = SquadV2Processor() if version_2_with_negative else SquadV1Processor()
+    processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
 
-    """
-    train_examples = processor.get_train_examples(data_dir, languages=train_langs)
-                     # + processor.get_dev_examples(data_dir, languages=train_langs)
-
+    ## TRAIN EXAMPLES
+    train_examples = processor.get_train_examples(args.data_dir, task="tydiqa", languages=args.train_langs)
     print("Train examples convertion to features")
     train_features, train_dataset = squad_convert_examples_to_features(
         examples=train_examples,
         tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
+        max_seq_length=args.max_seq_length,
+        doc_stride=args.doc_stride,
+        max_query_length=args.max_query_length,
         is_training=True,
         return_dataset="pt",
         threads=8,
         lang2id=lang2id)
-    """
 
-    print("Few shot examples convertion to features")
-    few_shot_examples = processor.get_dev_examples(data_dir, languages=dev_langs)
-                        #+ processor.get_train_examples(data_dir, languages=dev_langs)
-
-    few_shot_features, few_shot_dataset = squad_convert_examples_to_features(
-        examples=few_shot_examples,
-        tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
-        is_training=True,
-        return_dataset="pt",
-        threads=8,
-        lang2id=lang2id
-    )
-
+    ### TEST EXAMPLES
     test_features = {}
     test_dataset = {}
     test_examples = {}
-    for lang in test_langs:
-        test_examples.update({lang: processor.get_test_examples(data_dir, language=lang)})
+    for lang in args.test_langs:
+        test_examples.update({lang: processor.get_test_examples(args.data_dir, task="tydiqa", language=lang)})
         print("Test examples convertion to features %s len(test_examples[lang]):%d", lang, len(test_examples[lang]))
         test_features_lang, test_dataset_lang = squad_convert_examples_to_features(examples=test_examples[lang],
                                                                                    tokenizer=tokenizer,
-                                                                                   max_seq_length=max_seq_length,
-                                                                                   doc_stride=doc_stride,
-                                                                                   max_query_length=max_query_length,
+                                                                                   max_seq_length=args.max_seq_length,
+                                                                                   doc_stride=args.doc_stride,
+                                                                                   max_query_length=args.max_query_length,
                                                                                    is_training=True,
                                                                                    return_dataset="pt",
                                                                                    threads=8,
@@ -316,38 +300,38 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
 
     ### Training
-    #train_sampler = RandomSampler(train_dataset)
-    #train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=pre_train_config["batch_size"])
+    train_sampler = RandomSampler(train_dataset)
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=fine_tune_config["batch_size"])
 
-    num_train_epochs = 5
-    train_dataloader_num = 87599
-    t_total = train_dataloader_num // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
+    num_train_epochs = args.epoch
+    train_dataloader_num = len(train_dataloader)
+    t_total = train_dataloader_num // fine_tune_config["gradient_accumulation_steps"] * num_train_epochs
 
     optimizer_grouped_parameters = [
         {
             "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": pre_train_config["weight_decay"],
+            "weight_decay": fine_tune_config["weight_decay"],
         },
         {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
     ]
 
-    optimizer = AdamW(optimizer_grouped_parameters, lr=pre_train_config["adam_lr"], eps=pre_train_config["adam_eps"])
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=pre_train_config["warmup_steps"],
+    optimizer = AdamW(optimizer_grouped_parameters, lr=fine_tune_config["adam_lr"], eps=fine_tune_config["adam_eps"])
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=fine_tune_config["warmup_steps"],
                                                 num_training_steps=t_total)
 
     local_rank = -1
 
-    if use_pretrained_model:
-        print("LOADING PRE-TRAINING MODEL ON ENGLISH ...")
-        optimizer.load_state_dict(torch.load(os.path.join(pre_trained_model_name, "optimizer.pt")))
-        scheduler.load_state_dict(torch.load(os.path.join(pre_trained_model_name, "scheduler.pt")))
+    if args.option == "FT":
+        if args.use_pretrained_model:
+            print("LOADING PRE-TRAINING MODEL ON ENGLISH ...")
+            optimizer.load_state_dict(torch.load(os.path.join(args.pre_trained_model_name, "optimizer.pt")))
+            scheduler.load_state_dict(torch.load(os.path.join(args.pre_trained_model_name, "scheduler.pt")))
 
-        # Load a trained model and vocabulary that you have fine-tuned
-        model_dict = torch.load(pre_trained_model_name+"pytorch_model.bin")
-        model.load_state_dict(model_dict)
-        model.to(device)
-    """
-    else:
+            # Load a trained model and vocabulary that you have fine-tuned
+            model_dict = torch.load(args.pre_trained_model_name+"pytorch_model.bin")
+            model.load_state_dict(model_dict)
+            model.to(device)
+    elif args.option == "PRE":
         print("TRAINING FROM SCRATCH ...")
 
         global_step, epochs_trained, tr_loss, logging_loss = 1, 0, 0.0,  0.0
@@ -369,11 +353,11 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                     "end_positions": batch[4],
                 }
 
-                if model_type in ["xlnet", "xlm"]:
+                if args.model_type in ["xlnet", "xlm"]:
                     inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
-                    if version_2_with_negative:
+                    if args.version_2_with_negative:
                         inputs.update({"is_impossible": batch[7]})
-                if model_type == "xlm":
+                if args.model_type == "xlm":
                     inputs["langs"] = batch[7]
                 outputs = model(**inputs)
                 # model outputs are always tuple in transformers (see doc)
@@ -381,8 +365,8 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
                 loss = loss.mean()
 
-                if pre_train_config["gradient_accumulation_steps"] > 1:
-                    loss = loss / pre_train_config["gradient_accumulation_steps"]
+                if fine_tune_config["gradient_accumulation_steps"] > 1:
+                    loss = loss / fine_tune_config["gradient_accumulation_steps"]
 
                 loss.backward()
 
@@ -392,29 +376,18 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
 
-                if (step + 1) % pre_train_config["gradient_accumulation_steps"] == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), pre_train_config["max_grad_norm"])
+                if (step + 1) % fine_tune_config["gradient_accumulation_steps"] == 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), fine_tune_config["max_grad_norm"])
 
                     global_step += 1
 
                     ## Write loss metrics
                     writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
-                    writer.add_scalar("TRAIN_loss", (tr_loss - logging_loss) / pre_train_config["logging_steps"],
+                    writer.add_scalar("TRAIN_loss", (tr_loss - logging_loss) / fine_tune_config["logging_steps"],
                                       global_step)
                     logging_loss = tr_loss
 
-                    ## Evaluation on train, test datasets
-                    #train_results = evaluate(tokenizer, model, train_features, train_examples, train_dataset,
-                    #                         ",".join(train_langs), "train", pre_train_config["eval_batch_size"],
-                    #                         model_type, out_dir, pre_train_config["n_best_size"],
-                    #                         pre_train_config["max_answer_length"], version_2_with_negative,
-                    #                         verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
-
-                    #print("train_results:", train_results)
-                    #for key, value in train_results.items():
-                    #    writer.add_scalar("train_{}".format(key), value, global_step)
-
-                 if pre_train_config["save_steps"] > 0 and global_step % pre_train_config["save_steps"] == 0:
+                 if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
                     output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
@@ -430,14 +403,11 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                     torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                     logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
-    """
     print("MULTILINGUAL TESTING ...")
-    for lang in test_langs:
-        test_results = evaluate(tokenizer, model, test_features[lang], test_examples[lang], test_dataset[lang],
-                                lang, "test", pre_train_config["eval_batch_size"],
-                                model_type, out_dir, pre_train_config["n_best_size"],
-                                pre_train_config["max_answer_length"], version_2_with_negative,
-                                verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
+    for lang in args.test_langs:
+        test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type, out_dir, fine_tune_config["n_best_size"],
+                                fine_tune_config["max_answer_length"], args.version_2_with_negative,
+                                args.verbose_logging, args.do_lower_case, args.null_score_diff_threshold, lang2id)
 
         print("lang:", lang, " test_results:", test_results)
         for key, value in test_results.items():
@@ -445,91 +415,110 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
     ####
 
-    print("FINE-TUNING ON LANGUAGE:", dev_langs)
+    if args.option in ["FT", "MONO"]:
+        print("Language Specific fine tune examples convertion to features")
+        fine_tune_examples = processor.get_dev_examples(args.data_dir, task="tydiqa", languages=args.dev_langs)
 
-    fine_tune_sampler = RandomSampler(few_shot_dataset)
-    fine_tune_dataloader = DataLoader(few_shot_dataset, sampler=fine_tune_sampler, batch_size=pre_train_config["batch_size"])
-    t_total = len(fine_tune_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
-    print("Training for t_total:", t_total)
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=pre_train_config["warmup_steps"],
-                                                num_training_steps=t_total)
+        fine_tune_features, fine_tune_dataset = squad_convert_examples_to_features(
+            examples=fine_tune_examples,
+            tokenizer=tokenizer,
+            max_seq_length=args.max_seq_length,
+            doc_stride=args.doc_stride,
+            max_query_length=args.max_query_length,
+            is_training=True,
+            return_dataset="pt",
+            threads=8,
+            lang2id=lang2id
+        )
 
-    global_step, tr_loss, logging_loss = 0, 0.0, 0.0
-    for _ in tqdm(range(opt_config["epoch"])):
-        epoch_iterator = tqdm(fine_tune_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
-        for step, batch in enumerate(epoch_iterator):
-            model.train()
-            batch = tuple(t.to(device) for t in batch)
-            inputs = {
-                "input_ids": batch[0],
-                "attention_mask": batch[1],
-                "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
-                "start_positions": batch[3],
-                "end_positions": batch[4],
-            }
+        print("FINE-TUNING ON LANGUAGE:", args.dev_langs)
 
-            if model_type in ["xlnet", "xlm"]:
-                inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
-                if version_2_with_negative:
-                    inputs.update({"is_impossible": batch[7]})
-            if model_type == "xlm":
-                inputs["langs"] = batch[7]
+        fine_tune_sampler = RandomSampler(fine_tune_dataset)
+        fine_tune_dataloader = DataLoader(fine_tune_dataset,
+                                          sampler=fine_tune_sampler,
+                                          batch_size=fine_tune_config["batch_size"])
 
-            outputs = model(**inputs)
+        t_total = len(fine_tune_dataloader) // fine_tune_config["gradient_accumulation_steps"] * num_train_epochs
+        print("Training for t_total:", t_total)
+        scheduler = get_linear_schedule_with_warmup(optimizer,
+                                                    num_warmup_steps=fine_tune_config["warmup_steps"],
+                                                    num_training_steps=t_total)
 
-            loss = outputs[0]
+        global_step, tr_loss, logging_loss = 0, 0.0, 0.0
+        for _ in tqdm(range(num_train_epochs)):
+            epoch_iterator = tqdm(fine_tune_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
+            for step, batch in enumerate(epoch_iterator):
+                model.train()
+                batch = tuple(t.to(device) for t in batch)
+                inputs = {
+                    "input_ids": batch[0],
+                    "attention_mask": batch[1],
+                    "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
+                    "start_positions": batch[3],
+                    "end_positions": batch[4],
+                }
 
-            loss = loss.mean()
+                if args.model_type in ["xlnet", "xlm"]:
+                    inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
+                    if args.version_2_with_negative:
+                        inputs.update({"is_impossible": batch[7]})
+                if args.model_type == "xlm":
+                    inputs["langs"] = batch[7]
 
-            if pre_train_config["gradient_accumulation_steps"] > 1:
-                loss = loss / pre_train_config["gradient_accumulation_steps"]
+                outputs = model(**inputs)
 
-            loss.backward()
+                loss = outputs[0]
 
-            tr_loss += loss.item()
+                loss = loss.mean()
 
-            optimizer.step()
-            scheduler.step()  # Update learning rate schedule
-            model.zero_grad()
+                if fine_tune_config["gradient_accumulation_steps"] > 1:
+                    loss = loss / fine_tune_config["gradient_accumulation_steps"]
 
-            if (step + 1) % pre_train_config["gradient_accumulation_steps"] == 0:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), pre_train_config["max_grad_norm"])
+                loss.backward()
 
-                global_step += 1
+                tr_loss += loss.item()
 
-                ## Write loss metrics
-                writer.add_scalar("fine_tune_lr", scheduler.get_lr()[0], global_step)
-                writer.add_scalar("FINE_TUNE_loss", (tr_loss - logging_loss) / pre_train_config["logging_steps"],
-                                  global_step)
-                logging_loss = tr_loss
+                optimizer.step()
+                scheduler.step()  # Update learning rate schedule
+                model.zero_grad()
 
-            if pre_train_config["save_steps"] > 0 and global_step % pre_train_config["save_steps"] == 0:
-                output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
-                if not os.path.exists(output_dir):
-                    os.makedirs(output_dir)
-                    # Take care of distributed/parallel training
-                model_to_save = model.module if hasattr(model, "module") else model
-                model_to_save.save_pretrained(output_dir)
-                tokenizer.save_pretrained(output_dir)
+                if (step + 1) % fine_tune_config["gradient_accumulation_steps"] == 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), fine_tune_config["max_grad_norm"])
 
-                torch.save(args, os.path.join(output_dir, "training_args.bin"))
-                logger.info("Saving model checkpoint to %s", output_dir)
+                    global_step += 1
 
-                torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
-                torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
-                logger.info("Saving optimizer and scheduler states to %s", output_dir)
+                    ## Write loss metrics
+                    writer.add_scalar("fine_tune_lr", scheduler.get_lr()[0], global_step)
+                    writer.add_scalar("FINE_TUNE_loss", (tr_loss - logging_loss) / fine_tune_config["logging_steps"],
+                                      global_step)
+                    logging_loss = tr_loss
 
-            if global_step % 50 == 0:
-                for lang in test_langs:
-                    test_results = evaluate(tokenizer, model, test_features[lang], test_examples[lang], test_dataset[lang],
-                                            lang, "test", pre_train_config["eval_batch_size"],
-                                            model_type, out_dir, pre_train_config["n_best_size"],
-                                            pre_train_config["max_answer_length"], version_2_with_negative,
-                                            verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
+                if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
+                    output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
+                    if not os.path.exists(output_dir):
+                        os.makedirs(output_dir)
+                        # Take care of distributed/parallel training
+                    model_to_save = model.module if hasattr(model, "module") else model
+                    model_to_save.save_pretrained(output_dir)
+                    tokenizer.save_pretrained(output_dir)
 
-                    print("FINE TUNE lang:", lang, " test_results:", test_results)
-                    for key, value in test_results.items():
-                        writer.add_scalar("FINE_TUNE_test_{}_{}".format(lang, key), value, global_step)
+                    torch.save(args, os.path.join(output_dir, "training_args.bin"))
+                    logger.info("Saving model checkpoint to %s", output_dir)
+
+                    torch.save(optimizer.state_dict(), os.path.join(output_dir, "optimizer.pt"))
+                    torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
+                    logger.info("Saving optimizer and scheduler states to %s", output_dir)
+
+                if global_step % 50 == 0:
+                    for lang in args.test_langs:
+                        test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type,
+                                                out_dir, fine_tune_config["n_best_size"], fine_tune_config["max_answer_length"],
+                                                args.version_2_with_negative, args.verbose_logging, args.do_lower_case,
+                                                args.null_score_diff_threshold, lang2id)
+
+                        print("FINE TUNE lang:", lang, " test_results:", test_results)
+                        for key, value in test_results.items():
+                            writer.add_scalar("FINE_TUNE_test_{}_{}".format(lang, key), value, global_step)
 
 
 def set_seed(args):
@@ -541,16 +530,12 @@ def set_seed(args):
     if devices > 1:
         torch.cuda.manual_seed_all(args.seed)
 
-
 def get_arguments():
     parser = argparse.ArgumentParser()
     parser.add_argument("--train-langs", help="train languages list", nargs="+", default=[])
     parser.add_argument("--dev-langs", help="dev languages list", nargs="+", default=[])
     parser.add_argument("--test-langs", help="test languages list", nargs="+", default=[])
-    parser.add_argument('--use-few-shot', help='If true, use test languages in the meta-adaptation stage',
-                        action='store_true')  # zero-shot by default
-
-    parser.add_argument('--use-slots', help='If true, optimize for slot filling loss too', action='store_true')
+    parser.add_argument("--option", help="PRE, MONO, FT", default="FT")
 
     parser.add_argument('--data-dir', help='Path of data',  default="")
 
@@ -561,26 +546,35 @@ def get_arguments():
     parser.add_argument('--pre-trained-model-name', help='Path of output pre-trained model binary', default="")
     parser.add_argument('--data-format', help='Whether it is tsv or json', default="tsv")
 
-    parser.add_argument( "--max-seq-length", default=384, type=int,
+    parser.add_argument("--max-seq-length", default=384, type=int,
                          help="The maximum total input sequence length after WordPiece tokenization. Sequences "
-                              "longer than this will be truncated, and sequences shorter than this will be padded.")
+                              "longer than this will be truncated, and sequences shorter than this will be padded.") # Fixed from XTREME
+
     parser.add_argument("--doc-stride", default=128, type=int, help="When splitting up a long document into chunks, "
-                                                                    "how much stride to take between chunks.")
+                                                                    "how much stride to take between chunks.") # Fixed from XTREME
 
     parser.add_argument("--max-query-length", default=64, type=int, help="The maximum number of tokens for the question"
-                        ". Questions longer than this will be truncated to this length.")
+                        ". Questions longer than this will be truncated to this length.") # Fixed from XTREME
 
     parser.add_argument("--n-best-size", default=20, type=int, help="The total number of n-best predictions to generate"
-                                                                    " in the nbest_predictions.json output file.")
+                                                                    " in the nbest_predictions.json output file.") # This is for displaying the n-best predictions for each test example
 
     parser.add_argument("--max-answer-length", default=30, type=int, help="The maximum length of an answer that can be"
                                                                           " generated. This is needed because the start"
                                                                           " and end predictions are not conditioned on"
-                                                                          " one another.")
+                                                                          " one another.") # Fixed from XTREME
+
 
     ## Transformers options
     parser.add_argument("--tokenizer_name", default="", type=str,
                         help="Pretrained tokenizer name or path if not the same as model_name")
+
+    parser.add_argument("--trans-model", help="name of transformer model", default="BertBaseMultilingualCased")
+    parser.add_argument("--config-name", default="", type=str, help="Pretrained config name or path if not the same "
+                                                                    "as model_name")
+
+    parser.add_argument("--model-type", help="name of transformer model: xlnet, xlm, bert, xlm-roberta, distilbert",
+                        default="bert")
 
     parser.add_argument("--do-lower-case", action="store_true", help="Set this flag if you are using an uncased model.")
 
@@ -591,19 +585,12 @@ def get_arguments():
                         help="If true, all of the warnings related to data processing will be printed. "
                              "A number of warnings are expected for a normal SQuAD evaluation.")
 
-    parser.add_argument("--trans-model", help="name of transformer model", default="BertBaseMultilingualCased")
-    parser.add_argument("--config-name", default="", type=str, help="Pretrained config name or path if not the same "
-                                                                    "as model_name")
-
-    parser.add_argument("--model-type", help="name of transformer model: xlnet, xlm, bert, xlm-roberta, distilbert",
-                        default="bert")
-
     parser.add_argument("--cache_dir", default="", type=str,
                         help="Where do you want to store the pre-trained models downloaded from s3")
 
     ## Pre-training hyperparameters
     parser.add_argument('--pre-train-steps', help='the number of iterations if pre-training is done from scratch',
-                        type=int, default=2000)
+                        type=int, default=5000)
 
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -612,50 +599,24 @@ def get_arguments():
 
     parser.add_argument('--batch-size', help="batch size in the pre-training process", type=int, default=8)
     parser.add_argument('--eval-batch-size', help="batch size in the pre-training process", type=int, default=8)
+
     parser.add_argument('--adam-lr', help="learning rate of adam optimizer when training base model from scratch",
                         type=float, default=3e-5)
     parser.add_argument('--adam-eps', help="epsilon of adam optimizer when training base model from scratch",
-                        type=float, default= 1e-08)
+                        type=float, default=1e-08)
+
     parser.add_argument("--weight-decay", default=0.0, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--warmup-steps", default=0, type=int, help="Linear warmup over warmup_steps.")
     parser.add_argument('--use-pretrained-model', help='If true, use pre-trained NLU model', action='store_true')
     parser.add_argument("--save-steps", type=int, default=50, help="Save checkpoint every X updates steps.")
     parser.add_argument("--logging-steps", type=int, default=50, help="Log every X updates steps.")
 
-    ## Meta-learning Dataset Hyperparameters (Have to run using grid search to analyze learning curves)
-    parser.add_argument('--n-way', help='Number of classes for each task in the meta-learning', type=int, default=11)
-    parser.add_argument('--k-spt', help='Number of support examples per class', type=int, default=4)
-    parser.add_argument('--q-qry', help='Number of query examples per class', type=int, default=4)
-    parser.add_argument('--k-tune', help='Number of query examples per class', type=int, default=2)
-    parser.add_argument('--batch-sz', help='Number of iterations', type=int, default=1000)
     parser.add_argument('--seed', help="Random seed for initialization", type=int, default=42)
-
-    ## Meta-learning optimization Hyperparameters (tunable => hyperparameter optimization search or some automatic tool)
     parser.add_argument('--epoch', help='Number of epochs', type=int, default=10)  # Early stopping
-
-    parser.add_argument('--n-task', help='Number of tasks', type=int, default=4)
-
-    parser.add_argument('--n-up-train-step', help='Number of update steps in the meta-training stage', type=int,
-                        default=5)
-
-    parser.add_argument('--n-up-test-step', help="Number of update steps in the meta-update stage", type=int,
-                        default=10)
-
-    parser.add_argument('--alpha-lr', help='Learning rate during the meta-training stage (inner loop)', type=int,
-                        default=1e-2)
-
-    parser.add_argument('--beta-lr', help='Learning rate during the meta-update stage (outer loop)', type=int,
-                        default=1e-3)
-
-    parser.add_argument('--gamma-lr', help='Learning rate during the meta-update in the adaptation', type=int,
-                        default=1e-3)
 
     parser.add_argument('--local_rank', type=int, help='local rank for DistributedDataParallel')
     parser.add_argument("--no_cuda", action="store_true", help="Whether not to use CUDA when available")
-
     parser.add_argument('--use-dpp', help='Whether to use DPP or not', action='store_true')
-    parser.add_argument('--use-adapt', help='Whether to use meta-adaptation', action='store_true')
-    parser.add_argument('--freeze-bert', help='Whether to use meta-adaptation', nargs="+", default=[])
 
     args = parser.parse_args()
 
@@ -668,38 +629,22 @@ if __name__ == "__main__":
     set_seed(args)
 
     """ Config Parameters """
-    pre_train_config = {"pre_train_steps": args.pre_train_steps, "batch_size": args.batch_size, "adam_lr": args.adam_lr,
+    fine_tune_config = {"pre_train_steps": args.pre_train_steps, "batch_size": args.batch_size, "adam_lr": args.adam_lr,
                         "adam_eps": args.adam_eps, "gradient_accumulation_steps": args.gradient_accumulation_steps,
                         "warmup_steps": args.warmup_steps, "max_grad_norm": args.max_grad_norm,
                         "save_steps": args.save_steps, "weight_decay": args.weight_decay,
                         "logging_steps": args.logging_steps, "eval_batch_size": args.eval_batch_size,
                         "n_best_size": args.n_best_size, "max_answer_length": args.max_seq_length}
 
-    data_config = {"n_way": args.n_way, "k_spt": args.k_spt, "q_qry": args.q_qry, "batch_sz": args.batch_sz}
-
-    opt_config = {"epoch": args.epoch, "n_task": args.n_task, "n_up_train_step": args.n_up_train_step,
-                  "n_up_test_step": args.n_up_test_step, "alpha_lr": args.alpha_lr, "beta_lr": args.beta_lr,
-                  "gamma_lr": args.gamma_lr}
-
     """ Output Directory """
-    if args.use_adapt:
-        flag_adapt = "use_adapt/"
-    else:
-        flag_adapt = "no_adapt/"
-
-    freeze_bert_flag = ""
-    if len(args.freeze_bert) > 0:
-        freeze_bert_flag = "freeze_bert_" + ",".join(args.freeze_bert)
 
     if args.use_pretrained_model:
-        name = "FINE_TUNE"
+        name = "FT/"
     else:
-        name = "MONO_FORREAL"
+        name = "MONO/"
 
-    out_dir = os.path.join(args.out_dir, name +"_SEED_"+str(args.seed)+"/train_"+",".join(args.train_langs)+"-test_"+",".join(args.test_langs)
-                           + "/l2l/kspt_" + str(data_config["k_spt"]) + "-qqry_" + str(data_config["q_qry"])
-                           + "/en_train_set/" + freeze_bert_flag + "/few_shot_"+",".join(args.dev_langs)+"/"
-                           + flag_adapt)
+    out_dir = os.path.join(args.out_dir, name +"SEED_"+str(args.seed)+"/train_"+",".join(args.train_langs)+"-test_"
+                           + ",".join(args.test_langs)+ "/fine_tune_"+",".join(args.dev_langs)+"/")
 
     print("Saving in out_dir:", out_dir)
     writer = SummaryWriter(os.path.join(out_dir, 'runs'))
@@ -715,8 +660,4 @@ if __name__ == "__main__":
         torch.distributed.init_process_group(backend="nccl")
         n_gpu = 2
 
-    run(args.config_name, args.trans_model, args.model_type, args.tokenizer_name, args.do_lower_case, args.cache_dir,
-        device, args.version_2_with_negative, args.null_score_diff_threshold, args.verbose_logging, args.data_dir,
-        args.train_langs, args.dev_langs, args.test_langs, args.max_seq_length, args.doc_stride, args.max_query_length,
-        pre_train_config, data_config, opt_config, out_dir, writer, args.freeze_bert, args.use_pretrained_model,
-        args.pre_trained_model_name)
+    run(args, device, fine_tune_config, out_dir, writer)

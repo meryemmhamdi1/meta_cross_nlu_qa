@@ -1,6 +1,6 @@
 #!/bin/bash
-data_path=""
-results_path="" ##en fi id ko ru sw te
+data_path="" # Path to the root directory of TyDiQA dataset
+results_path="" # Path to the root results directory
 model="BertBaseMultilingualCased"
 
 for SEED in 40 42 44 163
@@ -35,10 +35,9 @@ do
                              --doc-stride 128 \
                              --save-steps 50 \
                              --gradient-accumulation-steps 4 \
-                             --k-spt 6 --q-qry 6 \
+                             --epoch 5 \
                              --data-dir $data_path \
                              --out-dir $results_path \
-                             --batch-sz 2500 \
                              --warmup-steps 500 \
                              --pre-train-steps 5000 \
                              --local_rank -1 \

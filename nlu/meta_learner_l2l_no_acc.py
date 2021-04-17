@@ -19,7 +19,7 @@ def accuracy(logits, targets):
 
 class MetaLearner(nn.Module):
     """
-    Accumulates gradients in the outer loop over tasks
+    Doesn't accumulates gradients in the outer loop over all tasks but each task at time (equivalent to maml with one task per batch)
     """
     def __init__(self, opti_config, base_model, use_slots, intent_types, slot_types, device, dataset, freeze_bert, use_freeze_bert, use_freeze_linear):
         super(MetaLearner, self).__init__()
@@ -86,7 +86,6 @@ class MetaLearner(nn.Module):
                 if "trans_model" not in name:
                     param.requires_grad = False
 
-        loss_qry_all = 0.0
         for i in range(n_tasks):
             learner = maml.clone()
 
@@ -118,12 +117,14 @@ class MetaLearner(nn.Module):
                                                       intent_labels=int_l_qry[i])
                 loss_qry = intent_loss
 
-            loss_qry_all += loss_qry
+            loss_qry.backward()
+
             meta_train_error += loss_qry.item()
             meta_train_accuracy += accuracy(logits_intents, int_l_qry[i])
 
-            """ Uses the adaptation within the meta-train stage one task at a time"""
+            ### Meta-validation Optimization
             if use_adapt and not use_ada_independent:
+                #learner = maml.clone()
 
                 for _ in range(0, self.n_up_test_step):
                     if self.use_slots:
@@ -158,18 +159,9 @@ class MetaLearner(nn.Module):
                 meta_tune_error += loss_qry.item()
                 meta_tune_accuracy += accuracy(logits_intents, int_l_qry_tune[i])
 
-                loss_qry.backward()
+                if use_back:
+                    loss_qry.backward()
 
-        # Average the accumulated gradients and optimize
-        loss_qry_all = loss_qry_all / n_tasks
-        for p in maml.parameters():
-            if p.grad is not None:
-                p.grad.mul_(1.0 / n_tasks)
-        loss_qry_all.backward()
-        opt.step()
-
-        """ Uses the adaptation at the end of the meta-train stage"""
-        loss_qry_tune_all = 0.0
         if use_adapt and use_ada_independent:
             for i in range(n_tasks):
                 learner = maml.clone()
@@ -204,19 +196,17 @@ class MetaLearner(nn.Module):
                                                           intent_labels=int_l_qry_tune[i])
                     loss_qry = intent_loss
 
-                loss_qry_tune_all += loss_qry
+                if use_back:
+                    loss_qry.backward()
 
-                meta_tune_error += loss_qry.item()
-                meta_tune_accuracy += accuracy(logits_intents, int_l_qry[i])
+                meta_train_error += loss_qry.item()
+                meta_train_accuracy += accuracy(logits_intents, int_l_qry[i])
 
         # Average the accumulated gradients and optimize
-        loss_qry_tune_all = loss_qry_tune_all / n_tasks
         for p in maml.parameters():
             if p.grad is not None:
                 p.grad.mul_(1.0 / n_tasks)
-        loss_qry_tune_all.backward()
         opt.step()
-
         return maml, meta_train_error, meta_train_accuracy, meta_tune_error, meta_tune_accuracy
 
     def zero_shot_test(self, test_langs, dataset):

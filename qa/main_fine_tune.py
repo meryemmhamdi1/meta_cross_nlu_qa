@@ -144,7 +144,7 @@ def run(args, device, fine_tune_config, out_dir, writer):
         train_iterator = trange(epochs_trained, int(num_train_epochs), desc="Epoch", disable=local_rank not in [-1, 0])
 
         for _ in train_iterator:
-            epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
+            epoch_iterator = tqdm(train_dataloader, desc="Training Iteration", disable=local_rank not in [-1, 0])
             for step, batch in enumerate(epoch_iterator):
                 model.train()
                 batch = tuple(t.to(device) for t in batch)
@@ -190,7 +190,7 @@ def run(args, device, fine_tune_config, out_dir, writer):
                                       global_step)
                     logging_loss = tr_loss
 
-                 if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
+                if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
                     output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)

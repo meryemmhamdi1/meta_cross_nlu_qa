@@ -1,7 +1,7 @@
 # Meta-Transfer Learning for X-NLU:
 
 This is a pytorch/learn2learn implementation for cross-lingual Transfer Learning NLU using different techniques of meta-learning. This repository contains code for replicating experiments for task-oriented dialogue and typologically diverse question answering using meta-learning algorithms described in this paper: "X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering (M'hamdi et al. 2021)" to appear in NAACL'21.    
-The repository is still being organized/refactored. If you have questions or comments, feel free to send an email to meryem@isi.edu.
+N.B.: The repository is still being organized/refactored. If you have questions or comments, feel free to send an email to mmhamdi at usc.edu.
 
 ## Table of Contents:
 

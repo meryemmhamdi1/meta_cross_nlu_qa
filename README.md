@@ -93,28 +93,7 @@ Refer to qa/scripts folder for a comprehensive list of experiments.
 ## 7. Other models<a name="other"></a>:
 We have developed and provide code for other models such as X-ProtoNets and X-HYMP (Hybrid of MAML and ProtoNets). We welcome any contributions to the code to improve their performance for those cross-lingual tasks.
 
-## 8. Reported Results/Visualisation<a name="viz"></a> (Coming Soon):
- 
- Coming soon (will be in the form of visualizations in the notebooks folder)
- In the agenda:
- 
- * Quantitative Analysis:
-     * Comparisons with:
-        * Direct transfer learning (transformer alone)
-        * Fine-tuning
-        * Mixed fine-tuning
-        * State of the art like mixed-training or latent variable model
-     * Ablation studies:
-        * Per language
-        * Per model component (with/wout adaptation)
-        * Per loss component
-        
- * Qualitative Analysis:
-    * Visualization of learned alignments and how they impact the performance
-    * Visualization of what amount of data leads to parameter changes and how it impacts the performance 
-    * Fine-grained visualization of which layers are impacted by the meta-training
-    * Which language help each other
-## 9. Citation<a name="citation"></a>:
+## 8. Citation<a name="citation"></a>:
 <pre>
 @misc{mhamdi21xmetraada,
     title={X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering},
@@ -123,6 +102,6 @@ We have developed and provide code for other models such as X-ProtoNets and X-HY
 }
 </pre>
 
-## 10. Credits<a name="credits"></a>
+## 9. Credits<a name="credits"></a>
 The code in this repository is partially based on: [mixed-language-training](https://github.com/zliucr/mixed-language-training) for the task-oriented dataset and cleaning code, [XTREME](https://github.com/google-research/xtreme) for base models, datasets and processing of TyDiQA, and [learn2learn](https://github.com/learnables/learn2learn) for X-METRA-ADA algorithm
  

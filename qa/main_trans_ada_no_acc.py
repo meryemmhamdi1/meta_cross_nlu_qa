@@ -53,6 +53,8 @@ import argparse
 import json
 import sys
 
+no_decay = ["bias", "LayerNorm.weight"]
+
 
 def normalize_answer(s):
     """Lower text and remove punctuation, articles and extra whitespace."""
@@ -126,9 +128,8 @@ def to_list(tensor):
     return tensor.detach().cpu().tolist()
 
 
-def evaluate(tokenizer, model, features, examples, dataset, language, prefix, eval_batch_size, model_type, out_dir,
-             n_best_size, max_answer_length, version_2_with_negative, verbose_logging, do_lower_case,
-             null_score_diff_threshold, lang2id, data_path):
+def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, n_best_size, max_answer_length,
+             version_2_with_negative, verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_path):
 
     features, dataset = squad_convert_examples_to_features(
         examples=examples,
@@ -146,7 +147,7 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
     eval_dataloader = DataLoader(dataset, sampler=eval_sampler, batch_size=1)
 
     all_results = []
-    for batch in eval_dataloader:
+    for batch in tqdm(eval_dataloader, desc="Evaluating"):
         model.eval()
         batch = tuple(t.to(device) for t in batch)
 
@@ -243,9 +244,9 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
 
     # Read the gold examples
     if prefix == "test":
-        data_file = data_path + "/tydiqa-goldp-v1.1-dev/tydiqa." + language + ".test.json"
+        data_file = data_path + "/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
     else:
-        data_file = data_path + "/tydiqa-goldp-v1.1-train/tydiqa." + language + ".train.json"
+        data_file = data_path + "/tydiqa-goldp-v1.1-train/tydiqa."+language+".train.json"
 
     with open(data_file) as dataset_file:
         dataset_json = json.load(dataset_file)
@@ -255,37 +256,55 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
     return results
 
 
-def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cache_dir, device, version_2_with_negative,
-        null_score_diff_threshold, verbose_logging, data_dir, train_langs, dev_langs, test_langs, max_seq_length,
-        doc_stride, max_query_length, pre_train_config, data_config, opt_config, out_dir, writer, freeze_bert,
-        use_pretrained_model, pre_trained_model_name, use_adapt):
+def run(args, device, fine_tune_config, data_config, opt_config, writer):
 
-    model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[trans_model]
+    model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[args.trans_model]
 
-    if cache_dir != "":
-        config = config_class.from_pretrained(cache_dir)
+    if args.cache_dir == "":
+        config = config_class.from_pretrained(args.config_name if args.config_name else model_name,
+                                              cache_dir=args.cache_dir if args.cache_dir != "" else None)
     else:
-        config = config_class.from_pretrained(config_name if config_name else model_name,
-                                              cache_dir=cache_dir if cache_dir else None)
+        config = config_class.from_pretrained(args.cache_dir)
 
     # Set usage of language embedding to True if model is xlm
-    if model_type == "xlm":
+    if args.model_type == "xlm":
         config.use_lang_emb = True
 
-    if cache_dir != "":
-        tokenizer = tokenizer_class.from_pretrained(cache_dir)
+    if args.cache_dir == "":
+        tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else model_name,
+                                                    do_lower_case=args.do_lower_case,
+                                                    cache_dir=args.cache_dir if args.cache_dir != "" else None)
+
+        model = qa_class.from_pretrained(model_name,
+                                         from_tf=bool(".ckpt" in model_name),
+                                         config=config,
+                                         cache_dir=args.cache_dir if args.cache_dir != "" else None)
     else:
-        tokenizer = tokenizer_class.from_pretrained(tokenizer_name if tokenizer_name else model_name,
-                                                    do_lower_case=do_lower_case,
-                                                    cache_dir=cache_dir if cache_dir else None)
+        tokenizer = tokenizer_class.from_pretrained(args.cache_dir)
+        model = qa_class.from_pretrained(args.cache_dir)
 
-    processor = SquadV2Processor() if version_2_with_negative else SquadV1Processor()
+    lang2id = config.lang2id if args.model_type == "xlm" else None
 
-    print("CONSTRUCTION of Train examples and their conversion to features and dataset>>>>>")
-    train_examples = processor.get_train_examples(data_dir, task="tydiqa", languages=train_langs)
+    model.to(device)
+
+    processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
+
+    ## TRAIN EXAMPLES
+    train_examples = processor.get_train_examples(args.data_dir, task="tydiqa", languages=args.train_langs)
+    print("Train examples convertion to features")
+    train_features, train_dataset = squad_convert_examples_to_features(
+        examples=train_examples,
+        tokenizer=tokenizer,
+        max_seq_length=args.max_seq_length,
+        doc_stride=args.doc_stride,
+        max_query_length=args.max_query_length,
+        is_training=True,
+        return_dataset="pt",
+        threads=8,
+        lang2id=lang2id)
 
     print("CONSTRUCTION of Dev examples for Meta-learning and their conversion to features and dataset")
-    if use_adapt:
+    if args.use_adapt:
         # Loading from x-metra-ada directory
         load_dir = os.path.join("sim_datasets", 'x-metra-ada')
 
@@ -293,14 +312,14 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
         with open(os.path.join(load_dir, 'spt_examples.pkl'), 'rb') as f:
             spt_examples = pickle.load(f)
 
-        with open(os.path.join(load_dir, dev_langs[0]+'_qry_examples.pkl'), 'rb') as f:
+        with open(os.path.join(load_dir, args.dev_langs[0]+'_qry_examples.pkl'), 'rb') as f:
             qry_examples = pickle.load(f)
 
         ## Meta-adaptation
-        with open(os.path.join(load_dir, dev_langs[0]+'_tune_spt_examples.pkl'), 'rb') as f:
+        with open(os.path.join(load_dir, args.dev_langs[0]+'_tune_spt_examples.pkl'), 'rb') as f:
             tune_spt_examples = pickle.load(f)
 
-        with open(os.path.join(load_dir, dev_langs[0]+'_tune_qry_examples.pkl'), 'rb') as f:
+        with open(os.path.join(load_dir, args.dev_langs[0]+'_tune_qry_examples.pkl'), 'rb') as f:
             tune_qry_examples = pickle.load(f)
 
     else:
@@ -311,39 +330,16 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
         with open(os.path.join(load_dir, 'spt_examples.pkl'), 'rb') as f:
             spt_examples = pickle.load(f)
 
-        with open(os.path.join(load_dir, dev_langs[0]+'_qry_examples.pkl'), 'rb') as f:
+        with open(os.path.join(load_dir, args.dev_langs[0]+'_qry_examples.pkl'), 'rb') as f:
             qry_examples = pickle.load(f)
-
-    if cache_dir != "":
-        model = qa_class.from_pretrained(cache_dir)
-    else:
-        model = qa_class.from_pretrained(model_name,
-                                         from_tf=bool(".ckpt" in model_name),
-                                         config=config,
-                                         cache_dir=cache_dir if cache_dir else None)
-
-    lang2id = config.lang2id if model_type == "xlm" else None
-
-    model.to(device)
-
-    train_features, train_dataset = squad_convert_examples_to_features(
-        examples=train_examples,
-        tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
-        is_training=True,
-        return_dataset="pt",
-        threads=8,
-        lang2id=lang2id)
 
     spt_features, qry_features, few_shot_dataset = meta_squad_convert_examples_to_features(
         spt_examples=spt_examples,
         qry_examples=qry_examples,
         tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
+        max_seq_length=args.max_seq_length,
+        doc_stride=args.doc_stride,
+        max_query_length=args.max_query_length,
         opt_config=opt_config,
         data_config=data_config,
         is_training=True,
@@ -352,14 +348,14 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
         lang2id=lang2id
     )
 
-    if use_adapt:
+    if args.use_adapt:
         tune_spt_features, tune_qry_features, ada_few_shot_dataset = meta_squad_convert_examples_to_features(
             spt_examples=tune_spt_examples,
             qry_examples=tune_qry_examples,
             tokenizer=tokenizer,
-            max_seq_length=max_seq_length,
-            doc_stride=doc_stride,
-            max_query_length=max_query_length,
+            max_seq_length=args.max_seq_length,
+            doc_stride=args.doc_stride,
+            max_query_length=args.max_query_length,
             opt_config=opt_config,
             data_config=data_config,
             is_training=True,
@@ -368,19 +364,18 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             lang2id=lang2id
         )
 
-    print("CONSTRUCTION of Test examples")
-
+    ### TEST EXAMPLES
     test_features = {}
     test_dataset = {}
     test_examples = {}
-    for lang in test_langs:
-        test_examples.update({lang: processor.get_test_examples(data_dir, language=lang, task="tydiqa")})
+    for lang in args.test_langs:
+        test_examples.update({lang: processor.get_test_examples(args.data_dir, task="tydiqa", language=lang)})
         print("Test examples convertion to features %s len(test_examples[lang]):%d", lang, len(test_examples[lang]))
         test_features_lang, test_dataset_lang = squad_convert_examples_to_features(examples=test_examples[lang],
                                                                                    tokenizer=tokenizer,
-                                                                                   max_seq_length=max_seq_length,
-                                                                                   doc_stride=doc_stride,
-                                                                                   max_query_length=max_query_length,
+                                                                                   max_seq_length=args.max_seq_length,
+                                                                                   doc_stride=args.doc_stride,
+                                                                                   max_query_length=args.max_query_length,
                                                                                    is_training=True,
                                                                                    return_dataset="pt",
                                                                                    threads=8,
@@ -390,38 +385,36 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
     ### Training
     train_sampler = RandomSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=pre_train_config["batch_size"])
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=fine_tune_config["batch_size"])
 
     num_train_epochs = 5
-
-    t_total = len(train_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
-    no_decay = ["bias", "LayerNorm.weight"]
+    t_total = len(train_dataloader) // fine_tune_config["gradient_accumulation_steps"] * num_train_epochs
     optimizer_grouped_parameters = [
         {
             "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": pre_train_config["weight_decay"],
+            "weight_decay": fine_tune_config["weight_decay"],
         },
         {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
     ]
 
-    optimizer = AdamW(optimizer_grouped_parameters, lr=pre_train_config["adam_lr"], eps=pre_train_config["adam_eps"])
+    optimizer = AdamW(optimizer_grouped_parameters, lr=fine_tune_config["adam_lr"], eps=fine_tune_config["adam_eps"])
     scheduler = get_linear_schedule_with_warmup(
-        optimizer, num_warmup_steps=pre_train_config["warmup_steps"], num_training_steps=t_total
+        optimizer, num_warmup_steps=fine_tune_config["warmup_steps"], num_training_steps=t_total
     )
 
     local_rank = -1
 
-    if use_pretrained_model:
-        optimizer.load_state_dict(torch.load(os.path.join(pre_trained_model_name, "optimizer.pt")))
-        scheduler.load_state_dict(torch.load(os.path.join(pre_trained_model_name, "scheduler.pt")))
+    if args.use_pretrained_model:
+        optimizer.load_state_dict(torch.load(os.path.join(args.pre_trained_model_name, "optimizer.pt")))
+        scheduler.load_state_dict(torch.load(os.path.join(args.pre_trained_model_name, "scheduler.pt")))
 
         # Load a trained model and vocabulary that you have fine-tuned
-        model_dict = torch.load(pre_trained_model_name+"pytorch_model.bin")
+        model_dict = torch.load(args.pre_trained_model_name+"pytorch_model.bin")
         model.load_state_dict(model_dict)
         model.to(device)
     else:
         print("TRAINING FROM SCRATCH ...")
-        tr_loss, logging_loss, epochs_trained, global_step = 0.0, 0.0, 0, 1
+        global_step, epochs_trained, tr_loss, logging_loss = 1, 0, 0.0, 0.0
 
         model.zero_grad()
 
@@ -435,16 +428,16 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 inputs = {
                     "input_ids": batch[0],
                     "attention_mask": batch[1],
-                    "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
+                    "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
                     "start_positions": batch[3],
                     "end_positions": batch[4],
                 }
 
-                if model_type in ["xlnet", "xlm"]:
+                if args.model_type in ["xlnet", "xlm"]:
                     inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
-                    if version_2_with_negative:
+                    if args.version_2_with_negative:
                         inputs.update({"is_impossible": batch[7]})
-                if model_type == "xlm":
+                if args.model_type == "xlm":
                     inputs["langs"] = batch[7]
                 outputs = model(**inputs)
                 # model outputs are always tuple in transformers (see doc)
@@ -452,8 +445,8 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
                 loss = loss.mean()
 
-                if pre_train_config["gradient_accumulation_steps"] > 1:
-                    loss = loss / pre_train_config["gradient_accumulation_steps"]
+                if fine_tune_config["gradient_accumulation_steps"] > 1:
+                    loss = loss / fine_tune_config["gradient_accumulation_steps"]
 
                 loss.backward()
 
@@ -463,18 +456,18 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
 
-                if (step + 1) % pre_train_config["gradient_accumulation_steps"] == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), pre_train_config["max_grad_norm"])
+                if (step + 1) % fine_tune_config["gradient_accumulation_steps"] == 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), fine_tune_config["max_grad_norm"])
 
                     global_step += 1
 
                     ## Write loss metrics
                     writer.add_scalar("lr", scheduler.get_lr()[0], global_step)
-                    writer.add_scalar("TRAIN_loss", (tr_loss - logging_loss) / pre_train_config["logging_steps"],
+                    writer.add_scalar("TRAIN_loss", (tr_loss - logging_loss) / fine_tune_config["logging_steps"],
                                       global_step)
                     logging_loss = tr_loss
 
-                if pre_train_config["save_steps"] > 0 and global_step % pre_train_config["save_steps"] == 0:
+                if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
                     output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
@@ -490,38 +483,36 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                     torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                     logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
-    for lang in test_langs:
-        test_results = evaluate(tokenizer, model, test_features[lang], test_examples[lang], test_dataset[lang],
-                                lang, "test", pre_train_config["eval_batch_size"],
-                                model_type, out_dir, pre_train_config["n_best_size"],
-                                pre_train_config["max_answer_length"], version_2_with_negative,
-                                verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_dir)
+    print("MULTILINGUAL TESTING ...")
+    for lang in args.test_langs:
+        test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type, out_dir,
+                                fine_tune_config["n_best_size"], fine_tune_config["max_answer_length"],
+                                args.version_2_with_negative, args.verbose_logging, args.do_lower_case,
+                                args.null_score_diff_threshold, lang2id, args.data_dir)
 
         print("lang:", lang, " test_results:", test_results)
         for key, value in test_results.items():
-            writer.add_scalar("test_{}_{}".format(lang, key), value, 0)
+            writer.add_scalar("Test_{}_{}".format(lang, key), value, 0)
 
 
     ### Support + Query
     fst_sampler = RandomSampler(few_shot_dataset)
     fst_dataloader = DataLoader(few_shot_dataset, sampler=fst_sampler, batch_size=opt_config["n_task"])
 
-    t_total = len(fst_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
-    fst_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=pre_train_config["warmup_steps"],
+    t_total = len(fst_dataloader) // fine_tune_config["gradient_accumulation_steps"] * num_train_epochs
+    fst_scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=fine_tune_config["warmup_steps"],
                                                     num_training_steps=t_total)
 
-    if use_adapt:
+    if args.use_adapt:
         ada_sampler = RandomSampler(ada_few_shot_dataset)
         ada_dataloader = DataLoader(ada_few_shot_dataset, sampler=ada_sampler, batch_size=opt_config["n_task"])
 
-        t_total = len(ada_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
+        t_total = len(ada_dataloader) // fine_tune_config["gradient_accumulation_steps"] * num_train_epochs
 
     global_step, tr_loss, logging_loss = 0, 0.0, 0.0
     for _ in tqdm(range(opt_config["epoch"])):
-        if global_step == 1200:
-            break
         epoch_iterator = tqdm(fst_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
-        if use_adapt:
+        if args.use_adapt:
             ada_epoch_iterator = tqdm(ada_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
         else:
             ada_epoch_iterator = epoch_iterator
@@ -532,7 +523,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             qry_inputs = [{
                 "input_ids": batch[8][i],
                 "attention_mask": batch[9][i],
-                "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[10][i],
+                "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[10][i],
                 "start_positions": batch[11][i],
                 "end_positions": batch[12][i],
             } for i in range(0, opt_config["n_task"])]
@@ -540,7 +531,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             spt_inputs = [{
                 "input_ids": batch[0][i],
                 "attention_mask": batch[1][i],
-                "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2][i],
+                "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2][i],
                 "start_positions": batch[3][i],
                 "end_positions": batch[4][i],
             } for i in range(0, opt_config["n_task"])]
@@ -550,7 +541,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             ada_qry_inputs = [{
                 "input_ids": ada_batch[8][i],
                 "attention_mask": ada_batch[9][i],
-                "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else ada_batch[10][i],
+                "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else ada_batch[10][i],
                 "start_positions": ada_batch[11][i],
                 "end_positions": ada_batch[12][i],
             } for i in range(0, opt_config["n_task"])]
@@ -558,7 +549,7 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             ada_spt_inputs = [{
                 "input_ids": ada_batch[0][i],
                 "attention_mask": ada_batch[1][i],
-                "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else ada_batch[2][i],
+                "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else ada_batch[2][i],
                 "start_positions": ada_batch[3][i],
                 "end_positions": ada_batch[4][i],
             } for i in range(0, opt_config["n_task"])]
@@ -566,7 +557,6 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
             model.train()
 
             maml = l2l.algorithms.MAML(model, lr=fst_scheduler.get_lr()[0], first_order=True)
-            loss_qry_all = 0.0
             for j in range(opt_config["n_task"]):
                 learner = maml.clone()
 
@@ -578,26 +568,14 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
                     learner.adapt(loss, allow_nograd=True, allow_unused=True)
 
-                # On the query data at the end of n_train optimizations
+                # On the query data
                 loss_qry = learner(**qry_inputs[j])[0].mean()
-                loss_qry_all += loss_qry
+
+                loss_qry.backward()
+
                 meta_train_error += loss_qry.item()
 
-            # Outer loop => Average the accumulated gradients and optimize
-            loss_qry_all = loss_qry_all / opt_config["n_task"]
-            for p in maml.parameters():
-                if p.grad is not None:
-                    p.grad.mul_(1.0 / opt_config["n_task"])
-            loss_qry_all.backward()
-            optimizer.step()
-            fst_scheduler.step()
-            model.zero_grad()
-
-            loss_qry_tune_all = 0.0
-            if use_adapt:
-                for j in range(opt_config["n_task"]):
-                    learner = maml.clone()
-
+                if args.use_adapt:
                     for _ in range(0, opt_config["n_up_test_step"]):
                         tune_outputs = learner(**ada_spt_inputs[j])
                         tune_loss = tune_outputs[0]
@@ -605,26 +583,24 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                         tune_loss = tune_loss.mean()
                         learner.adapt(tune_loss, allow_nograd=True, allow_unused=True)
 
-                    # On the query data at the end of n_adapt optimizations
+                    # On the query data
                     loss_qry = learner(**ada_qry_inputs[j])[0].mean()
 
-                    loss_qry_tune_all += loss_qry
-                    meta_tune_error += loss_qry.item()
+                    loss_qry.backward()
+                    meta_train_error += loss_qry.item()
 
-                # Average the accumulated gradients and optimize
-                loss_qry_tune_all = loss_qry_tune_all / opt_config["n_task"]
-                for p in maml.parameters():
-                    if p.grad is not None:
-                        p.grad.mul_(1.0 / opt_config["n_task"])
-                loss_qry_tune_all.backward()
-                optimizer.step()
-                fst_scheduler.step()
-                model.zero_grad()
+            # Average the accumulated gradients and optimize
+            for p in maml.parameters():
+                if p.grad is not None:
+                    p.grad.mul_(1.0 / opt_config["n_task"])
+            optimizer.step()
+            fst_scheduler.step()
+            model.zero_grad()
 
             writer.add_scalar("META_train_error", meta_train_error, global_step)
             writer.add_scalar("META_tune_error", meta_tune_error, global_step)
 
-            if pre_train_config["save_steps"] > 0 and global_step % pre_train_config["save_steps"] == 0:
+            if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
                 output_dir = os.path.join(out_dir, "META_checkpoint-{}".format(global_step))
                 if not os.path.exists(output_dir):
                     os.makedirs(output_dir)
@@ -640,13 +616,12 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                 logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
-            if global_step % 20 == 0:
-                for lang in test_langs:
-                    test_results = evaluate(tokenizer, model, test_features[lang], test_examples[lang], test_dataset[lang],
-                                            lang, "test", pre_train_config["eval_batch_size"],
-                                            model_type, out_dir, pre_train_config["n_best_size"],
-                                            pre_train_config["max_answer_length"], version_2_with_negative,
-                                            verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_dir)
+            if global_step % fine_tune_config["save_steps"] == 0:
+                for lang in args.test_langs:
+                    test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type,
+                                            out_dir, fine_tune_config["n_best_size"], fine_tune_config["max_answer_length"],
+                                            args.version_2_with_negative, args.verbose_logging, args.do_lower_case,
+                                            args.null_score_diff_threshold, lang2id, args.data_dir)
 
                     print("META lang:", lang, " test_results:", test_results)
                     for key, value in test_results.items():
@@ -725,7 +700,7 @@ def get_arguments():
 
     ## Pre-training hyperparameters
     parser.add_argument('--pre-train-steps', help='the number of iterations if pre-training is done from scratch',
-                        type=int, default=2000)
+                        type=int, default=5000)
 
     parser.add_argument("--gradient-accumulation-steps", type=int, default=1,
                         help="Number of updates steps to accumulate before performing a backward/update pass.")
@@ -737,7 +712,7 @@ def get_arguments():
     parser.add_argument('--adam-lr', help="learning rate of adam optimizer when training base model from scratch",
                         type=float, default=3e-5)
     parser.add_argument('--adam-eps', help="epsilon of adam optimizer when training base model from scratch",
-                        type=float, default= 1e-08)
+                        type=float, default=1e-08)
     parser.add_argument("--weight-decay", default=0.0, type=float, help="Weight decay if we apply some.")
     parser.add_argument("--warmup-steps", default=0, type=int, help="Linear warmup over warmup_steps.")
     parser.add_argument('--use-pretrained-model', help='If true, use pre-trained NLU model', action='store_true')
@@ -777,7 +752,6 @@ def get_arguments():
 
     parser.add_argument('--use-dpp', help='Whether to use DPP or not', action='store_true')
     parser.add_argument('--use-adapt', help='Whether to use meta-adaptation', action='store_true')
-    parser.add_argument('--freeze-bert', help='Whether to use meta-adaptation', nargs="+", default=[])
 
     args = parser.parse_args()
 
@@ -790,7 +764,7 @@ if __name__ == "__main__":
     set_seed(args)
 
     """ Config Parameters """
-    pre_train_config = {"pre_train_steps": args.pre_train_steps, "batch_size": args.batch_size, "adam_lr": args.adam_lr,
+    fine_tune_config = {"pre_train_steps": args.pre_train_steps, "batch_size": args.batch_size, "adam_lr": args.adam_lr,
                         "adam_eps": args.adam_eps, "gradient_accumulation_steps": args.gradient_accumulation_steps,
                         "warmup_steps": args.warmup_steps, "max_grad_norm": args.max_grad_norm,
                         "save_steps": args.save_steps, "weight_decay": args.weight_decay,
@@ -809,14 +783,10 @@ if __name__ == "__main__":
     else:
         flag_adapt = "no_adapt/"
 
-    freeze_bert_flag = ""
-    if len(args.freeze_bert) > 0:
-        freeze_bert_flag = "freeze_bert_" + ",".join(args.freeze_bert)
-
     out_dir = os.path.join(args.out_dir, "MAML_ADA_SEED"+str(args.seed)+"/train_"+",".join(args.train_langs)+"-test_"
                            + ",".join(args.test_langs) + "/l2l/kspt_" + str(data_config["k_spt"]) + "-qqry_"
-                           + str(data_config["q_qry"]) + "/en_train_set/" + freeze_bert_flag + "/few_shot_"
-                           + ",".join(args.dev_langs)+"/"+ flag_adapt)
+                           + str(data_config["q_qry"]) + "/en_train_set/" + "/few_shot_" + ",".join(args.dev_langs)+"/"
+                           + flag_adapt)
 
     writer = SummaryWriter(os.path.join(out_dir, 'runs'))
 
@@ -831,8 +801,4 @@ if __name__ == "__main__":
         torch.distributed.init_process_group(backend="nccl")
         n_gpu = 1
 
-    run(args.config_name, args.trans_model, args.model_type, args.tokenizer_name, args.do_lower_case, args.cache_dir,
-        device, args.version_2_with_negative, args.null_score_diff_threshold, args.verbose_logging, args.data_dir,
-        args.train_langs, args.dev_langs, args.test_langs, args.max_seq_length, args.doc_stride, args.max_query_length,
-        pre_train_config, data_config, opt_config, out_dir, writer, args.freeze_bert, args.use_pretrained_model,
-        args.pre_trained_model_name, args.use_adapt)
+    run(args, device, fine_tune_config, data_config, opt_config, out_dir, writer)

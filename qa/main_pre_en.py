@@ -1,24 +1,34 @@
 from __future__ import print_function
-import argparse
-import glob
 import logging
 import os
 import random
-import timeit
 import numpy as np
 from tqdm import tqdm, trange
+
+from transformers_config import *
 
 
 import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
-from torch.utils.data.distributed import DistributedSampler
+
+## Optimization
+from transformers import (
+    WEIGHTS_NAME,
+    AdamW,
+    get_linear_schedule_with_warmup,
+)
+
+## SQUAD Metrics
+from transformers.data.metrics.squad_metrics import (
+    compute_predictions_log_probs,
+    compute_predictions_logits,
+    squad_evaluate,
+)
 
 try:
     from torch.utils.tensorboard import SummaryWriter
 except ImportError:
     from tensorboardX import SummaryWriter
-
-from transformers_config import *
 
 from data_utils import (
     SquadResult,
@@ -84,6 +94,7 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 
 
 def evaluate_sq(dataset, predictions):
+    """ Taken from https://github.com/google-research/xtreme/blob/master/third_party/evaluate_squad.py#L77 """
     f1 = exact_match = total = 0
     for article in dataset:
         for paragraph in article['paragraphs']:
@@ -111,9 +122,8 @@ def to_list(tensor):
     return tensor.detach().cpu().tolist()
 
 
-def evaluate(tokenizer, model, features, examples, dataset, language, prefix, eval_batch_size, model_type, out_dir,
-             n_best_size, max_answer_length, version_2_with_negative, verbose_logging, do_lower_case,
-             null_score_diff_threshold, lang2id):
+def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, n_best_size, max_answer_length,
+             version_2_with_negative, verbose_logging, do_lower_case, null_score_diff_threshold, lang2id, data_path):
 
     features, dataset = squad_convert_examples_to_features(
         examples=examples,
@@ -191,121 +201,114 @@ def evaluate(tokenizer, model, features, examples, dataset, language, prefix, ev
         start_n_top = model.config.start_n_top if hasattr(model, "config") else model.module.config.start_n_top
         end_n_top = model.config.end_n_top if hasattr(model, "config") else model.module.config.end_n_top
 
-        predictions = compute_predictions_log_probs(examples,
-                                                    features,
-                                                    all_results,
-                                                    n_best_size,
-                                                    max_answer_length,
-                                                    output_prediction_file,
-                                                    output_nbest_file,
-                                                    output_null_log_odds_file,
-                                                    start_n_top,
-                                                    end_n_top,
-                                                    version_2_with_negative,
-                                                    tokenizer,
-                                                    verbose_logging)
-    else:
-        predictions = compute_predictions_logits(examples,
-                                                 features,
-                                                 all_results,
-                                                 n_best_size,
-                                                 max_answer_length,
-                                                 do_lower_case,
-                                                 output_prediction_file,
-                                                 output_nbest_file,
-                                                 output_null_log_odds_file,
-                                                 verbose_logging,
-                                                 version_2_with_negative,
-                                                 null_score_diff_threshold,
-                                                 tokenizer)
+        # Saves the predictions directly in output_prediction_file
+        compute_predictions_log_probs(examples,
+                                      features,
+                                      all_results,
+                                      n_best_size,
+                                      max_answer_length,
+                                      output_prediction_file,
+                                      output_nbest_file,
+                                      output_null_log_odds_file,
+                                      start_n_top,
+                                      end_n_top,
+                                      version_2_with_negative,
+                                      tokenizer,
+                                      verbose_logging)
 
-    # Compute the F1 and exact scores.
-    #results = squad_evaluate(examples, predictions)
-    if prefix == "test":
-        data_file = "/nas/clear/users/meryem/Datasets/QA/tydiqa/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
     else:
-        data_file = "/nas/clear/users/meryem/Datasets/QA/tydiqa/tydiqa-goldp-v1.1-train/tydiqa."+language+".train.json"
+        # Saves the predictions directly in output_prediction_file
+        compute_predictions_logits(examples,
+                                   features,
+                                   all_results,
+                                   n_best_size,
+                                   max_answer_length,
+                                   do_lower_case,
+                                   output_prediction_file,
+                                   output_nbest_file,
+                                   output_null_log_odds_file,
+                                   verbose_logging,
+                                   version_2_with_negative,
+                                   null_score_diff_threshold,
+                                   tokenizer)
+
+    # Load the predictions
+    with open(output_prediction_file) as prediction_file:
+        predictions = json.load(prediction_file)
+
+    # Read the gold examples
+    if prefix == "test":
+        data_file = data_path + "/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
+    else:
+        data_file = data_path + "/tydiqa-goldp-v1.1-train/tydiqa."+language+".train.json"
 
     with open(data_file) as dataset_file:
         dataset_json = json.load(dataset_file)
         dataset = dataset_json['data']
-    with open(output_prediction_file) as prediction_file:
-        predictions = json.load(prediction_file)
+
     results = evaluate_sq(dataset, predictions)
     return results
 
 
-def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cache_dir, device, version_2_with_negative,
-        null_score_diff_threshold, verbose_logging, data_dir, train_langs, dev_langs, test_langs, max_seq_length,
-        doc_stride, max_query_length, pre_train_config, data_config, opt_config, out_dir, writer, freeze_bert,
-        use_pretrained_model, pre_trained_model_name):
+def run(args, device, fine_tune_config, out_dir, writer):
 
-    model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[trans_model]
+    model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[args.trans_model]
 
-    config = config_class.from_pretrained(config_name if config_name else model_name,
-                                         cache_dir=cache_dir if cache_dir else None)
+    if args.cache_dir == "":
+        config = config_class.from_pretrained(args.config_name if args.config_name else model_name,
+                                              cache_dir=args.cache_dir if args.cache_dir != "" else None)
+    else:
+        config = config_class.from_pretrained(args.cache_dir)
 
     # Set usage of language embedding to True if model is xlm
-    if model_type == "xlm":
+    if args.model_type == "xlm":
         config.use_lang_emb = True
 
-    tokenizer = tokenizer_class.from_pretrained(tokenizer_name if tokenizer_name else model_name,
-                                                do_lower_case=do_lower_case,
-                                                cache_dir=cache_dir if cache_dir else None)
+    if args.cache_dir == "":
+        tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else model_name,
+                                                    do_lower_case=args.do_lower_case,
+                                                    cache_dir=args.cache_dir if args.cache_dir != "" else None)
 
-    model = qa_class.from_pretrained(model_name,
-                                     from_tf=bool(".ckpt" in model_name),
-                                     config=config,
-                                     cache_dir=cache_dir if cache_dir else None)
+        model = qa_class.from_pretrained(model_name,
+                                         from_tf=bool(".ckpt" in model_name),
+                                         config=config,
+                                         cache_dir=args.cache_dir if args.cache_dir != "" else None)
+    else:
+        tokenizer = tokenizer_class.from_pretrained(args.cache_dir)
+        model = qa_class.from_pretrained(args.cache_dir)
 
-    lang2id = config.lang2id if model_type == "xlm" else None
+    lang2id = config.lang2id if args.model_type == "xlm" else None
 
     model.to(device)
 
-    processor = SquadV2Processor() if version_2_with_negative else SquadV1Processor()
+    processor = SquadV2Processor() if args.version_2_with_negative else SquadV1Processor()
 
-    train_examples = processor.get_train_examples(data_dir, languages=train_langs)
-                     # + processor.get_dev_examples(data_dir, languages=train_langs)
-
+    ## TRAIN EXAMPLES
+    train_examples = processor.get_train_examples(args.data_dir, task="tydiqa", languages=args.train_langs)
     print("Train examples convertion to features")
     train_features, train_dataset = squad_convert_examples_to_features(
         examples=train_examples,
         tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
+        max_seq_length=args.max_seq_length,
+        doc_stride=args.doc_stride,
+        max_query_length=args.max_query_length,
         is_training=True,
         return_dataset="pt",
         threads=8,
         lang2id=lang2id)
 
-    print("Few shot examples convertion to features")
-    few_shot_examples = processor.get_dev_examples(data_dir, languages=dev_langs)
-                        #+ processor.get_train_examples(data_dir, languages=dev_langs)
-
-    few_shot_features, few_shot_dataset = squad_convert_examples_to_features(
-        examples=few_shot_examples,
-        tokenizer=tokenizer,
-        max_seq_length=max_seq_length,
-        doc_stride=doc_stride,
-        max_query_length=max_query_length,
-        is_training=True,
-        return_dataset="pt",
-        threads=8,
-        lang2id=lang2id
-    )
-
+    ### TEST EXAMPLES
     test_features = {}
     test_dataset = {}
     test_examples = {}
-    for lang in test_langs:
-        test_examples.update({lang: processor.get_test_examples(data_dir, language=lang)})
+    for lang in args.test_langs:
+        test_examples.update({lang: processor.get_test_examples(args.data_dir, task="tydiqa", language=lang)})
         print("Test examples convertion to features %s len(test_examples[lang]):%d", lang, len(test_examples[lang]))
         test_features_lang, test_dataset_lang = squad_convert_examples_to_features(examples=test_examples[lang],
                                                                                    tokenizer=tokenizer,
-                                                                                   max_seq_length=max_seq_length,
-                                                                                   doc_stride=doc_stride,
-                                                                                   max_query_length=max_query_length,
+                                                                                   max_seq_length=args.max_seq_length,
+                                                                                   doc_stride=args.doc_stride,
+                                                                                   max_query_length=args.max_query_length,
                                                                                    is_training=True,
                                                                                    return_dataset="pt",
                                                                                    threads=8,
@@ -313,25 +316,24 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
         test_features.update({lang: test_features_lang})
         test_dataset.update({lang: test_dataset_lang})
 
-
-
     ### Training
     train_sampler = RandomSampler(train_dataset)
-    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=pre_train_config["batch_size"])
+    train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=fine_tune_config["batch_size"])
 
-    num_train_epochs = 5
-    t_total = len(train_dataloader) // pre_train_config["gradient_accumulation_steps"] * num_train_epochs
+    num_train_epochs = args.epoch
+    train_dataloader_num = len(train_dataloader)
+    t_total = train_dataloader_num // fine_tune_config["gradient_accumulation_steps"] * num_train_epochs
 
     optimizer_grouped_parameters = [
         {
             "params": [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-            "weight_decay": pre_train_config["weight_decay"],
+            "weight_decay": fine_tune_config["weight_decay"],
         },
         {"params": [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)], "weight_decay": 0.0},
     ]
 
-    optimizer = AdamW(optimizer_grouped_parameters, lr=pre_train_config["adam_lr"], eps=pre_train_config["adam_eps"])
-    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=pre_train_config["warmup_steps"],
+    optimizer = AdamW(optimizer_grouped_parameters, lr=fine_tune_config["adam_lr"], eps=fine_tune_config["adam_eps"])
+    scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=fine_tune_config["warmup_steps"],
                                                 num_training_steps=t_total)
 
     local_rank = -1
@@ -344,8 +346,6 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
     global_step, tr_loss, logging_loss = 0, 0.0, 0.0
     for _ in train_iterator:
-        if global_step == 800:
-            break
         for _ in tqdm(range(opt_config["epoch"])):
             epoch_iterator = tqdm(train_dataloader, desc="Iteration", disable=local_rank not in [-1, 0])
             for step, batch in enumerate(epoch_iterator):
@@ -354,16 +354,16 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 inputs = {
                     "input_ids": batch[0],
                     "attention_mask": batch[1],
-                    "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
+                    "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
                     "start_positions": batch[3],
                     "end_positions": batch[4],
                 }
 
-                if model_type in ["xlnet", "xlm"]:
+                if args.model_type in ["xlnet", "xlm"]:
                     inputs.update({"cls_index": batch[5], "p_mask": batch[6]})
-                    if version_2_with_negative:
+                    if args.version_2_with_negative:
                         inputs.update({"is_impossible": batch[7]})
-                if model_type == "xlm":
+                if args.model_type == "xlm":
                     inputs["langs"] = batch[7]
 
                 outputs = model(**inputs)
@@ -372,8 +372,8 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
 
                 loss = loss.mean()
 
-                if pre_train_config["gradient_accumulation_steps"] > 1:
-                    loss = loss / pre_train_config["gradient_accumulation_steps"]
+                if fine_tune_config["gradient_accumulation_steps"] > 1:
+                    loss = loss / fine_tune_config["gradient_accumulation_steps"]
 
                 loss.backward()
 
@@ -383,18 +383,18 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                 scheduler.step()  # Update learning rate schedule
                 model.zero_grad()
 
-                if (step + 1) % pre_train_config["gradient_accumulation_steps"] == 0:
-                    torch.nn.utils.clip_grad_norm_(model.parameters(), pre_train_config["max_grad_norm"])
+                if (step + 1) % fine_tune_config["gradient_accumulation_steps"] == 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), fine_tune_config["max_grad_norm"])
 
                     global_step += 1
 
                     ## Write loss metrics
                     writer.add_scalar("fine_tune_lr", scheduler.get_lr()[0], global_step)
-                    writer.add_scalar("FINE_TUNE_loss", (tr_loss - logging_loss) / pre_train_config["logging_steps"],
+                    writer.add_scalar("FINE_TUNE_loss", (tr_loss - logging_loss) / fine_tune_config["logging_steps"],
                                       global_step)
                     logging_loss = tr_loss
 
-                if pre_train_config["save_steps"] > 0 and global_step % pre_train_config["save_steps"] == 0:
+                if fine_tune_config["save_steps"] > 0 and global_step % fine_tune_config["save_steps"] == 0:
                     output_dir = os.path.join(out_dir, "checkpoint-{}".format(global_step))
                     if not os.path.exists(output_dir):
                         os.makedirs(output_dir)
@@ -410,13 +410,12 @@ def run(config_name, trans_model, model_type, tokenizer_name, do_lower_case, cac
                     torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                     logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
-                if global_step % 50 == 0:
-                    for lang in test_langs:
-                        test_results = evaluate(tokenizer, model, test_features[lang], test_examples[lang], test_dataset[lang],
-                                                lang, "test", pre_train_config["eval_batch_size"],
-                                                model_type, out_dir, pre_train_config["n_best_size"],
-                                                pre_train_config["max_answer_length"], version_2_with_negative,
-                                                verbose_logging, do_lower_case, null_score_diff_threshold, lang2id)
+                if global_step % fine_tune_config["save_steps"] == 0:
+                    for lang in args.test_langs:
+                        test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type,
+                                                out_dir, fine_tune_config["n_best_size"], fine_tune_config["max_answer_length"],
+                                                args.version_2_with_negative, args.verbose_logging, args.do_lower_case,
+                                                args.null_score_diff_threshold, lang2id)
 
                         print("PRE-TRAIN TEST on :", lang, " test_results:", test_results)
                         for key, value in test_results.items():
@@ -524,7 +523,7 @@ def get_arguments():
     parser.add_argument('--seed', help="Random seed for initialization", type=int, default=42)
 
     ## Meta-learning optimization Hyperparameters (tunable => hyperparameter optimization search or some automatic tool)
-    parser.add_argument('--epoch', help='Number of epochs', type=int, default=10)  # Early stopping
+    parser.add_argument('--epoch', help='Number of epochs', type=int, default=5)  # Early stopping
 
     parser.add_argument('--n-task', help='Number of tasks', type=int, default=4)
 

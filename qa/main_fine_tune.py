@@ -5,16 +5,30 @@ import random
 import numpy as np
 from tqdm import tqdm, trange
 
+from transformers_config import *
+
 
 import torch
 from torch.utils.data import DataLoader, RandomSampler, SequentialSampler
+
+## Optimization
+from transformers import (
+    WEIGHTS_NAME,
+    AdamW,
+    get_linear_schedule_with_warmup,
+)
+
+## SQUAD Metrics
+from transformers.data.metrics.squad_metrics import (
+    compute_predictions_log_probs,
+    compute_predictions_logits,
+    squad_evaluate,
+)
 
 try:
     from torch.utils.tensorboard import SummaryWriter
 except ImportError:
     from tensorboardX import SummaryWriter
-
-from transformers_config import *
 
 from data_utils import (
     SquadResult,
@@ -80,6 +94,7 @@ def metric_max_over_ground_truths(metric_fn, prediction, ground_truths):
 
 
 def evaluate_sq(dataset, predictions):
+    """ Taken from https://github.com/google-research/xtreme/blob/master/third_party/evaluate_squad.py#L77 """
     f1 = exact_match = total = 0
     for article in dataset:
         for paragraph in article['paragraphs']:
@@ -186,6 +201,7 @@ def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, 
         start_n_top = model.config.start_n_top if hasattr(model, "config") else model.module.config.start_n_top
         end_n_top = model.config.end_n_top if hasattr(model, "config") else model.module.config.end_n_top
 
+        # Saves the predictions directly in output_prediction_file
         compute_predictions_log_probs(examples,
                                       features,
                                       all_results,
@@ -199,7 +215,9 @@ def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, 
                                       version_2_with_negative,
                                       tokenizer,
                                       verbose_logging)
+
     else:
+        # Saves the predictions directly in output_prediction_file
         compute_predictions_logits(examples,
                                    features,
                                    all_results,
@@ -214,10 +232,11 @@ def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, 
                                    null_score_diff_threshold,
                                    tokenizer)
 
-
+    # Load the predictions
     with open(output_prediction_file) as prediction_file:
         predictions = json.load(prediction_file)
 
+    # Read the gold examples
     if prefix == "test":
         data_file = data_path + "/tydiqa-goldp-v1.1-dev/tydiqa."+language+".test.json"
     else:
@@ -230,13 +249,14 @@ def evaluate(tokenizer, model, examples, language, prefix, model_type, out_dir, 
     results = evaluate_sq(dataset, predictions)
     return results
 
+
 def run(args, device, fine_tune_config, out_dir, writer):
 
     model_name, tokenizer_class, model_class, config_class, qa_class = MODELS_dict[args.trans_model]
 
     if args.cache_dir == "":
         config = config_class.from_pretrained(args.config_name if args.config_name else model_name,
-                                             cache_dir=args.cache_dir if args.cache_dir else None)
+                                              cache_dir=args.cache_dir if args.cache_dir != "" else None)
     else:
         config = config_class.from_pretrained(args.cache_dir)
 
@@ -247,15 +267,14 @@ def run(args, device, fine_tune_config, out_dir, writer):
     if args.cache_dir == "":
         tokenizer = tokenizer_class.from_pretrained(args.tokenizer_name if args.tokenizer_name else model_name,
                                                     do_lower_case=args.do_lower_case,
-                                                    cache_dir=args.cache_dir if args.cache_dir else None)
+                                                    cache_dir=args.cache_dir if args.cache_dir != "" else None)
 
         model = qa_class.from_pretrained(model_name,
                                          from_tf=bool(".ckpt" in model_name),
                                          config=config,
-                                         cache_dir=args.cache_dir if args.cache_dir else None)
+                                         cache_dir=args.cache_dir if args.cache_dir != "" else None)
     else:
         tokenizer = tokenizer_class.from_pretrained(args.cache_dir)
-
         model = qa_class.from_pretrained(args.cache_dir)
 
     lang2id = config.lang2id if args.model_type == "xlm" else None
@@ -297,8 +316,6 @@ def run(args, device, fine_tune_config, out_dir, writer):
         test_features.update({lang: test_features_lang})
         test_dataset.update({lang: test_dataset_lang})
 
-
-
     ### Training
     train_sampler = RandomSampler(train_dataset)
     train_dataloader = DataLoader(train_dataset, sampler=train_sampler, batch_size=fine_tune_config["batch_size"])
@@ -333,8 +350,7 @@ def run(args, device, fine_tune_config, out_dir, writer):
             model.to(device)
     elif args.option == "PRE":
         print("TRAINING FROM SCRATCH ...")
-
-        global_step, epochs_trained, tr_loss, logging_loss = 1, 0, 0.0,  0.0
+        global_step, epochs_trained, tr_loss, logging_loss = 1, 0, 0.0, 0.0
 
         model.zero_grad()
 
@@ -348,7 +364,7 @@ def run(args, device, fine_tune_config, out_dir, writer):
                 inputs = {
                     "input_ids": batch[0],
                     "attention_mask": batch[1],
-                    "token_type_ids": None if model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
+                    "token_type_ids": None if args.model_type in ["xlm", "xlm-roberta", "distilbert"] else batch[2],
                     "start_positions": batch[3],
                     "end_positions": batch[4],
                 }
@@ -405,9 +421,10 @@ def run(args, device, fine_tune_config, out_dir, writer):
 
     print("MULTILINGUAL TESTING ...")
     for lang in args.test_langs:
-        test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type, out_dir, fine_tune_config["n_best_size"],
-                                fine_tune_config["max_answer_length"], args.version_2_with_negative,
-                                args.verbose_logging, args.do_lower_case, args.null_score_diff_threshold, lang2id)
+        test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type, out_dir,
+                                fine_tune_config["n_best_size"], fine_tune_config["max_answer_length"],
+                                args.version_2_with_negative, args.verbose_logging, args.do_lower_case,
+                                args.null_score_diff_threshold, lang2id, args.data_dir)
 
         print("lang:", lang, " test_results:", test_results)
         for key, value in test_results.items():
@@ -509,12 +526,12 @@ def run(args, device, fine_tune_config, out_dir, writer):
                     torch.save(scheduler.state_dict(), os.path.join(output_dir, "scheduler.pt"))
                     logger.info("Saving optimizer and scheduler states to %s", output_dir)
 
-                if global_step % 50 == 0:
+                if global_step % fine_tune_config["save_steps"] == 0:
                     for lang in args.test_langs:
                         test_results = evaluate(tokenizer, model, test_examples[lang], lang, "test", args.model_type,
                                                 out_dir, fine_tune_config["n_best_size"], fine_tune_config["max_answer_length"],
                                                 args.version_2_with_negative, args.verbose_logging, args.do_lower_case,
-                                                args.null_score_diff_threshold, lang2id)
+                                                args.null_score_diff_threshold, lang2id, args.data_dir)
 
                         print("FINE TUNE lang:", lang, " test_results:", test_results)
                         for key, value in test_results.items():
@@ -587,6 +604,8 @@ def get_arguments():
 
     parser.add_argument("--cache_dir", default="", type=str,
                         help="Where do you want to store the pre-trained models downloaded from s3")
+
+    parser.add_argument('--task', help='tydiqa, mlqa or else', default="tydiqa")
 
     ## Pre-training hyperparameters
     parser.add_argument('--pre-train-steps', help='the number of iterations if pre-training is done from scratch',

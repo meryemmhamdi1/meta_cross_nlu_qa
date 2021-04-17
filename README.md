@@ -64,20 +64,18 @@ For details on how the support and query sets are generated for the meta-train a
     
     
 2) Training X-METRA-ADA:
-    * Few-shot learning on Thai, Zero-shot on Spanish:
+    * Few-shot learning on Spanish, Zero-shot on Thai:
     ```
-    python main.py --train --train-langs en --dev-langs th --test-langs en es th --use-slots --data-format "tsv" 
-                   --trans-model "BertBaseMultilingualCased" --data-dir "Facebook-NLU-Data/" --out-dir "out"
-                   --pre-train-steps 2000 --batch-size 32 --adam-lr 4e-5 --adam-eps 1e-08 --n-way 11 --k-spt 5 
-                   --q-qry 5 --k-tune 5 --batch-sz 10000 --epoch 100 --n-task 4 --n-up-train-step 5 --n-up-test-step 5 
-                   --alpha-lr 1e-2 --beta-lr 1e-3 --gamma-lr 1e-3     
+    python main.py --option "META"  --use-slots --train-langs en --dev-langs th --test-langs en es th \
+               --k-spt 6 --q-qry 6 --data-dir "Facebook-NLU-Data/" --out-dir "Results/few_shot_es/" --batch-sz 2500 --pre-train-steps 2000 --local_rank 0 \
+               --use-pretrained-model "pre_trained" --pre-trained-model-name $pre_trained_model_name --seed 42
     ```
    
-    * Zero-shot learning on Thai, Few-shot on Spanish:
+    * Zero-shot learning on Spanish, Few-shot on Thai:
     ```
-    python main.py --option "META" --use-slots --train-langs en --dev-langs es --test-langs en es th --use-adapt --use-back --use-non-overlap \
-               --k-spt 6 --q-qry 6 --data-dir $data_path --out-dir $results_path --batch-sz 2500 --pre-train-steps 2000 --local_rank 0 \
-               --use-pretrained-model "pre_trained" --pre-trained-model-name $pre_trained_model_name --seed $SEED      
+    python main.py --option "META" --use-slots --train-langs en --dev-langs th --test-langs en es th --use-adapt --use-back --use-non-overlap \
+               --k-spt 6 --q-qry 6 --data-dir "Facebook-NLU-Data/" --out-dir "Results/few_shot_th/ --batch-sz 2500 --pre-train-steps 2000 --local_rank 0 \
+               --use-pretrained-model "pre_trained" --pre-trained-model-name $pre_trained_model_name --seed 42      
     ```
     
 

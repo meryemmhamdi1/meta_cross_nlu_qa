@@ -11,9 +11,8 @@ The repository is still being organized/refactored. If you have questions or com
 4. [Cross-lingual Few-shot Meta Pseudo-Tasks](#metatasks)
 5. [Meta-learning on Multilingual Task-Oriented Dialogue (MTOD)](#mtod)
 6. [Meta-learning on Few-Shot TyDiQA](#qa)
-7. [Other Models](#other)
-8. [Citation](#citation)
-9. [Credits](#credits)
+7. [Citation](#citation)
+8. [Credits](#credits)
 
 
 ## 1. Abstract <a name="abstract"></a>:
@@ -89,11 +88,7 @@ For details on how the support and query sets are generated for the meta-train a
  
 Refer to qa/scripts folder for a comprehensive list of experiments.
 
- 
-## 7. Other models<a name="other"></a>:
-We have developed and provide code for other models such as X-ProtoNets and X-HYMP (Hybrid of MAML and ProtoNets). We welcome any contributions to the code to improve their performance for those cross-lingual tasks.
-
-## 8. Citation<a name="citation"></a>:
+## 7. Citation<a name="citation"></a>:
 <pre>
 @misc{mhamdi21xmetraada,
     title={X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering},
@@ -102,6 +97,6 @@ We have developed and provide code for other models such as X-ProtoNets and X-HY
 }
 </pre>
 
-## 9. Credits<a name="credits"></a>
+## 8. Credits<a name="credits"></a>
 The code in this repository is partially based on: [mixed-language-training](https://github.com/zliucr/mixed-language-training) for the task-oriented dataset and cleaning code, [XTREME](https://github.com/google-research/xtreme) for base models, datasets and processing of TyDiQA, and [learn2learn](https://github.com/learnables/learn2learn) for X-METRA-ADA algorithm
  

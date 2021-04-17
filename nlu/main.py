@@ -5,9 +5,10 @@ import gc
 
 from data_utils import Dataset
 from meta_reader import MetaDataset
-from pre_train_base import *
+from main_pre_en import *
 #from base_model import TransformerNLU
-from meta_learner_l2l import *
+#from meta_learner_l2l import *
+from meta_learner_l2l_no_acc import *
 from transformers_config import *
 
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -213,24 +214,24 @@ def run(args, data_config, pre_train_config, opt_config, pre_trained_model_path)
                                writer,
                                args.out_dir)
 
-        print("Evaluation on test set at the end of pre-training...")
-        for lang in test_langs:
-            if use_slots:
-                test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, test_slot_rec, \
-                test_slot_f1 = nlu_evaluation(model, dataset, lang, dataset.test[lang].size, use_slots, device)
+    print("Evaluation on test set at the end of pre-training...")
+    for lang in test_langs:
+        if use_slots:
+            test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1, test_slot_prec, test_slot_rec, \
+            test_slot_f1 = nlu_evaluation(model, dataset, lang, dataset.test[lang].size, use_slots, device)
 
-                print('Test on {} | Intent Accuracy = {:.4f} Precision = {:.4f} Recall = {:.4f} and F1 = {:.4f} '
-                      '| Slot  Precision = {:.4f} Recall = {:.4f} and F1 = {:.4f}'
-                      .format(lang, test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1,
-                              test_slot_prec, test_slot_rec, test_slot_f1))
-            else:
-                test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1 \
-                    = nlu_evaluation(model, dataset, lang, dataset.test[lang].size, use_slots, device)
+            print('Test on {} | Intent Accuracy = {:.4f} Precision = {:.4f} Recall = {:.4f} and F1 = {:.4f} '
+                  '| Slot  Precision = {:.4f} Recall = {:.4f} and F1 = {:.4f}'
+                  .format(lang, test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1,
+                          test_slot_prec, test_slot_rec, test_slot_f1))
+        else:
+            test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1 \
+                = nlu_evaluation(model, dataset, lang, dataset.test[lang].size, use_slots, device)
 
-                print('Test on {} | Intent Accuracy = {:.4f} Precision = {:.4f} Recall = {:.4f} and F1 = {:.4f} '
-                      .format(lang, test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1))
+            print('Test on {} | Intent Accuracy = {:.4f} Precision = {:.4f} Recall = {:.4f} and F1 = {:.4f} '
+                  .format(lang, test_intent_acc, test_intent_prec, test_intent_rec, test_intent_f1))
 
-        return dataset, model
+    return dataset, model
 
 
 

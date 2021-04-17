@@ -4,7 +4,7 @@ results_path=""
 pre_trained_model_name=""
 model="BertBaseMultilingualCased"
 
-echo "MONOLINGUAL TRAINING (without any pre-trained model on ENGLISH) ON EACH LANGUAGE INDEPENDENTLY"
+echo "MONOLINGUAL TRAINING (without any initial task-specific fine-tuning of the model on ENGLISH) ON EACH LANGUAGE INDEPENDENTLY"
 for LANG in es th
 do
     echo "MONOLINGUAL on "$LANG

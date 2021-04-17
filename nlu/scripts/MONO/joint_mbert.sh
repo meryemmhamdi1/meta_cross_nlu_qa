@@ -4,7 +4,7 @@ results_path=""
 pre_trained_model_name=""
 model="BertBaseMultilingualCased"
 
-echo "MONOLINGUAL TRAINING (without any pre-trained model on ENGLISH) JOINTLY ON ALL LANGUAGES"
+echo "MONOLINGUAL TRAINING (without any initial task-specific fine-tuning of the model on ENGLISH) JOINTLY ON ALL LANGUAGES"
 for SEED in 42 35 119 40
 do
     python main.py --option "MONO" --use-slots --train-langs en --dev-langs es th --test-langs es th --use-adapt --k-spt 2 --q-qry 2 \

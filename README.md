@@ -88,10 +88,13 @@ Refer to qa/scripts folder for a comprehensive list of experiments.
 
 ## 7. Citation<a name="citation"></a>:
 <pre>
-@misc{mhamdi21xmetraada,
-    title={X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering},
-    author={Meryem M'hamdi, Doo Soon Kim, Franck Dernoncourt, Trung Bui, Xiang Ren and Jonathan May},
-    year={2021}
+@misc{mhamdi2021xmetraada,
+      title={X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering}, 
+      author={Meryem M'hamdi and Doo Soon Kim and Franck Dernoncourt and Trung Bui and Xiang Ren and Jonathan May},
+      year={2021},
+      eprint={2104.09696},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL}
 }
 </pre>
 

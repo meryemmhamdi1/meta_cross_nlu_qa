@@ -88,13 +88,23 @@ Refer to qa/scripts folder for a comprehensive list of experiments.
 
 ## 7. Citation<a name="citation"></a>:
 <pre>
-@misc{mhamdi2021xmetraada,
-      title={X-METRA-ADA: Cross-lingual Meta-Transfer Learning Adaptation to Natural Language Understanding and Question Answering}, 
-      author={Meryem M'hamdi and Doo Soon Kim and Franck Dernoncourt and Trung Bui and Xiang Ren and Jonathan May},
-      year={2021},
-      eprint={2104.09696},
-      archivePrefix={arXiv},
-      primaryClass={cs.CL}
+@inproceedings{mhamdi-etal-2021-x,
+    title = "{X}-{METRA}-{ADA}: Cross-lingual Meta-Transfer learning Adaptation to Natural Language Understanding and Question Answering",
+    author = "M{'}hamdi, Meryem  and
+      Kim, Doo Soon  and
+      Dernoncourt, Franck  and
+      Bui, Trung  and
+      Ren, Xiang  and
+      May, Jonathan",
+    booktitle = "Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics: Human Language Technologies",
+    month = jun,
+    year = "2021",
+    address = "Online",
+    publisher = "Association for Computational Linguistics",
+    url = "https://aclanthology.org/2021.naacl-main.283",
+    doi = "10.18653/v1/2021.naacl-main.283",
+    pages = "3617--3632",
+    abstract = "Multilingual models, such as M-BERT and XLM-R, have gained increasing popularity, due to their zero-shot cross-lingual transfer learning capabilities. However, their generalization ability is still inconsistent for typologically diverse languages and across different benchmarks. Recently, meta-learning has garnered attention as a promising technique for enhancing transfer learning under low-resource scenarios: particularly for cross-lingual transfer in Natural Language Understanding (NLU). In this work, we propose X-METRA-ADA, a cross-lingual MEta-TRAnsfer learning ADAptation approach for NLU. Our approach adapts MAML, an optimization-based meta-learning approach, to learn to adapt to new languages. We extensively evaluate our framework on two challenging cross-lingual NLU tasks: multilingual task-oriented dialog and typologically diverse question answering. We show that our approach outperforms naive fine-tuning, reaching competitive performance on both tasks for most languages. Our analysis reveals that X-METRA-ADA can leverage limited data for faster adaptation.",
 }
 </pre>
 
